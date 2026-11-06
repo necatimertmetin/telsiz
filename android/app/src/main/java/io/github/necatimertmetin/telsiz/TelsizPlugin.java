@@ -61,9 +61,13 @@ public class TelsizPlugin extends Plugin {
 
     @PluginMethod
     public void appVersion(PluginCall call) {
-        JSObject r = new JSObject();
-        r.put("version", BuildConfig.VERSION_NAME);
-        call.resolve(r);
+        try {
+            JSObject r = new JSObject();
+            r.put("version", getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0).versionName);
+            call.resolve(r);
+        } catch (PackageManager.NameNotFoundException e) {
+            call.reject("Sürüm okunamadı", e);
+        }
     }
 
     // APK indirilir, Android kurulum ekranı açılır. Son onayı sistem ister.
