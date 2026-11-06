@@ -63,6 +63,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.text)
   const [picker, setPicker] = useState(false)
+  const [sel, setSel] = useState(false)
   const own = m.uid === app.me.uid
   const re = m.re ? s.view.byId.get(m.re) : undefined
   const react = (emoji: string) => {
@@ -76,7 +77,10 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
     setEditing(false)
   }
   return (
-    <div className={'msg' + (head ? ' head' : '')}>
+    <div className={'msg' + (head ? ' head' : '') + (sel ? ' sel' : '')} onClick={e => {
+      // Dokunmatik ekranda hover yok: araçlar mesaja dokununca açılır.
+      if (matchMedia('(hover: none)').matches && !(e.target as HTMLElement).closest('a,button,video,audio,textarea')) setSel(!sel)
+    }}>
       {head ? <Avatar uid={m.uid} name={m.name} s={38} /> : <span className="gutter">{fmtTime(m.ts)}</span>}
       <div className="body">
         {re && <div className="reline ell"><Icon n="reply" s={13} /> <b>{re.name}</b> {re.text || re.file?.name}</div>}
@@ -99,7 +103,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
         <button className="ico sm" aria-label="Tepki" onClick={() => setPicker(!picker)}><Icon n="smile" s={16} /></button>
         <button className="ico sm" aria-label="Yanıtla" onClick={onReply}><Icon n="reply" s={16} /></button>
         {own && m.text && <button className="ico sm" aria-label="Düzenle" onClick={() => { setDraft(m.text); setEditing(true) }}><Icon n="edit" s={16} /></button>}
-        {own && <button className="ico sm" aria-label="Sil" onClick={() => s.emit({t: 'del', target: m.id} as never)}><Icon n="trash" s={16} /></button>}
+        {own && <button className="ico sm" aria-label="Sil" onClick={() => { if (confirm('Bu mesaj herkesten silinsin mi?')) s.emit({t: 'del', target: m.id} as never) }}><Icon n="trash" s={16} /></button>}
       </div>
     </div>
   )
