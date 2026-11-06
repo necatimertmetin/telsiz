@@ -4,7 +4,9 @@ import {callStarted, callStopped, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
 export type ScreenQ = '720p30' | '1080p30' | '1080p60' | '1440p60'
-export type AudioPrefs = {micId: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
+const SCREEN_GAIN = 2.5
+
+export type AudioPrefs = {screenGain: number; micId: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
 export const SCREEN_Q: Record<ScreenQ, {w: number; h: number; f: number; b: number; label: string}> = {
   '720p30': {w: 1280, h: 720, f: 30, b: 2_000_000, label: '720p 30 fps'},
   '1080p30': {w: 1920, h: 1080, f: 30, b: 3_500_000, label: '1080p 30 fps'},
@@ -35,6 +37,7 @@ export class Call {
   private audios = new Map<string, HTMLAudioElement>()
   private meters = new Map<string, {an: AnalyserNode; src: MediaStreamAudioSourceNode}>()
   private ctx?: AudioContext
+  private screenRaw?: {raw: MediaStreamTrack; src: MediaStreamAudioSourceNode; gain: GainNode}
   private localAn?: AnalyserNode
   private timer?: ReturnType<typeof setInterval>
   private tuner?: ReturnType<typeof setInterval>
@@ -133,6 +136,7 @@ export class Call {
     const targets = [...this.sent[k]]
     if (targets.length) { try { this.s.room.removeStream(st, {target: targets}) } catch { /* akış zaten düştü */ } }
     st.getTracks().forEach(t => t.stop())
+    if (k === 'screen' && this.screenRaw) { this.screenRaw.src.disconnect(); this.screenRaw.raw.stop(); this.screenRaw = undefined }
     this.sent[k].clear()
     delete this.streams[k]
   }
@@ -305,7 +309,8 @@ export class Call {
   }
 
   applyAudio() {
-    const {speakerId} = this.prefs()
+    const {speakerId, screenGain} = this.prefs()
+    if (this.screenRaw) this.screenRaw.gain.gain.value = SCREEN_GAIN * screenGain
     for (const [uid, r] of this.relayed) {
       r.el.muted = this.s.voice.deaf
       r.el.volume = Math.min(1, this.vol(uid))
@@ -418,7 +423,7 @@ export class Call {
       audio: withAudio ? {echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true} as MediaTrackConstraints : false,
       systemAudio: 'include',
     } as DisplayMediaStreamOptions)
-    st.getAudioTracks().forEach(t => { t.contentHint = 'music' })
+    this.boostScreen(st)
     // 60 fps'te akıcılık, 30 fps'te yazı netliği öncelikli.
     st.getVideoTracks()[0].contentHint = q.f >= 60 ? 'motion' : 'detail'
     st.getVideoTracks()[0].onended = () => { if (this.streams.screen === st) void this.toggleScreen() }
@@ -426,6 +431,26 @@ export class Call {
     this.s.voice.screen = true
     this.s.voice.sAudio = st.getAudioTracks().length > 0
     this.s.announce()
+  }
+
+  // Sistem sesi, otomatik kazançlı mikrofonun yanında kısık kalır. Yükseltilir, sınırlayıcı da patlamayı önler.
+  private boostScreen(st: MediaStream) {
+    const raw = st.getAudioTracks()[0]
+    if (!raw) return
+    raw.contentHint = 'music'
+    if (!this.ctx) return
+    const src = this.ctx.createMediaStreamSource(new MediaStream([raw]))
+    const gain = this.ctx.createGain()
+    const limit = this.ctx.createDynamicsCompressor()
+    const dest = this.ctx.createMediaStreamDestination()
+    gain.gain.value = SCREEN_GAIN * this.prefs().screenGain
+    limit.threshold.value = -9; limit.knee.value = 3; limit.ratio.value = 20; limit.attack.value = .002; limit.release.value = .2
+    src.connect(gain).connect(limit).connect(dest)
+    const out = dest.stream.getAudioTracks()[0]
+    out.contentHint = 'music'
+    st.removeTrack(raw)
+    st.addTrack(out)
+    this.screenRaw = {raw, src, gain}
   }
 
   async changeScreenQuality() {

@@ -10,19 +10,28 @@ export const SFX: Record<string, {label: string; notes: [number, number][]; type
   gg: {label: 'GG', notes: [[659, .12], [784, .12], [659, .12], [784, .3]], type: 'triangle'},
 }
 
-export function playSfx(id: string, vol = .06) {
+// Dalga türüne göre tepe düzeyi: kare ve testere aynı tepede kulağa çok daha yüksek gelir.
+const LEVEL: Record<OscillatorType, number> = {sine: .55, triangle: .5, square: .22, sawtooth: .25, custom: .3}
+
+// sink: konuşmaların çıktığı hoparlör, efekt de oradan çıksın.
+export function playSfx(id: string, sink = '') {
   const s = SFX[id]
   if (!s) return
   try {
-    const c = new AudioContext()
-    let t = c.currentTime
-    for (const [f, d] of s.notes) {
-      const o = c.createOscillator(), g = c.createGain()
-      o.type = s.type; o.frequency.value = f
-      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + d)
-      o.connect(g).connect(c.destination); o.start(t); o.stop(t + d)
-      t += d
+    const c = new AudioContext() as AudioContext & {setSinkId?: (i: string) => Promise<void>}
+    const play = () => {
+      const vol = LEVEL[s.type]
+      let t = c.currentTime
+      for (const [f, d] of s.notes) {
+        const o = c.createOscillator(), g = c.createGain()
+        o.type = s.type; o.frequency.value = f
+        // Nota boyunca düzey korunur, sadece sonu söner; yoksa ses daha başında kaybolur.
+        g.gain.setValueAtTime(vol, t); g.gain.setValueAtTime(vol, t + d * .7); g.gain.exponentialRampToValueAtTime(0.001, t + d)
+        o.connect(g).connect(c.destination); o.start(t); o.stop(t + d)
+        t += d
+      }
+      setTimeout(() => c.close(), (t - c.currentTime) * 1000 + 500)
     }
-    setTimeout(() => c.close(), (t - c.currentTime) * 1000 + 500)
+    if (sink && c.setSinkId) void c.setSinkId(sink).catch(() => {}).then(play); else play()
   } catch { /* ses yok */ }
 }

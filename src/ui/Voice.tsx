@@ -12,6 +12,8 @@ import {TvPlayer, TvQueue} from './Watch'
 function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted: boolean; mirror?: boolean; volume?: number}) {
   const r = useRef<HTMLVideoElement>(null)
   useEffect(() => { if (r.current) r.current.volume = volume }, [volume])
+  const sink = app.prefs.speakerId
+  useEffect(() => { if (!muted && sink) void (r.current as HTMLVideoElement & {setSinkId?: (i: string) => Promise<void>}).setSinkId?.(sink).catch(() => {}) }, [muted, sink, stream])
   useEffect(() => {
     if (r.current && r.current.srcObject !== stream) r.current.srcObject = stream
     void r.current?.play().catch(() => {})
@@ -27,7 +29,7 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
   const hasAudio = !!t.screen && !!t.stream && t.stream.getAudioTracks().length > 0
   const volKey = t.screen ? 's:' + t.uid : t.uid
   return (
-    <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '')} onClick={onClick}>
+    <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '')} onClick={onClick}>
       {t.stream
         ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={app.volumes[volKey] ?? 1} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
@@ -37,7 +39,16 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
       </div>
       <div className="tileact" onClick={e => e.stopPropagation()}>
         {t.peerId && (!t.screen || hasAudio) && (
-          <input type="range" min="0" max="1" step="0.05" value={app.volumes[volKey] ?? 1} aria-label={`${t.name} ses düzeyi`} onChange={e => app.setVolume(volKey, +e.target.value)} />
+          <>
+            {hasAudio && <span className="tilevol">Ses %{Math.round((app.volumes[volKey] ?? 1) * 100)}</span>}
+            <input type="range" min="0" max="1" step="0.05" value={app.volumes[volKey] ?? 1} aria-label={`${t.name} ${t.screen ? 'ekran sesi' : 'ses düzeyi'}`} onChange={e => app.setVolume(volKey, +e.target.value)} />
+          </>
+        )}
+        {t.self && hasAudio && (
+          <>
+            <span className="tilevol">Yayın sesi %{Math.round(app.prefs.screenGain * 100)}</span>
+            <input type="range" min="0" max="2" step="0.05" value={app.prefs.screenGain} aria-label="Yayın ses düzeyi" title="Arkadaşlarına giden ekran sesi" onChange={e => { app.prefs.screenGain = +e.target.value; app.savePrefs() }} />
+          </>
         )}
         {t.stream && document.pictureInPictureEnabled && <button className="ico sm" aria-label="Küçük pencerede izle" title="Küçük pencerede izle" onClick={() => void r.current?.querySelector('video')?.requestPictureInPicture().catch(() => {})}><Icon n="pip" s={16} /></button>}
         {t.stream && <button className="ico sm" aria-label="Tam ekran" onClick={() => void r.current?.requestFullscreen?.()}><Icon n="full" s={16} /></button>}
