@@ -1,3 +1,4 @@
+import {validJwk, type KeysJwk} from './identity'
 const ALPHA = 'abcdefghjkmnpqrstuvwxyz23456789'
 
 export function randomId(len = 16): string {
@@ -85,7 +86,7 @@ export function mentions(text: string, name: string): boolean {
   return t.includes('@herkes') || (!!name && t.includes('@' + name.toLocaleLowerCase('tr-TR')))
 }
 
-export type Backup = {uid: string; name: string; groups: {code: string; title: string}[]; color?: string}
+export type Backup = {uid: string; name: string; groups: {code: string; title: string}[]; color?: string; keys?: KeysJwk}
 
 // Yedek kodu kimliği ve grup anahtarlarını taşır: hesap yerine geçer, şifre gibi saklanmalı.
 export function encodeBackup(b: Backup): string {
@@ -105,6 +106,6 @@ export function decodeBackup(input: string): Backup | null {
     if (typeof b.uid !== 'string' || !/^[a-z2-9]{8,64}$/.test(b.uid) || typeof b.name !== 'string' || !b.name.trim() || !Array.isArray(b.groups)) return null
     const groups = b.groups.filter(g => g && typeof g.code === 'string' && code.test(g.code)).map(g => ({code: g.code, title: String(g.title ?? 'Grup').slice(0, 40)}))
     const color = typeof b.color === 'string' && /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : undefined
-    return {uid: b.uid, name: b.name.slice(0, 32), groups, ...(color ? {color} : {})}
+    return {uid: b.uid, name: b.name.slice(0, 32), groups, ...(color ? {color} : {}), ...(validJwk(b.keys) ? {keys: b.keys} : {})}
   } catch { return null }
 }

@@ -1,5 +1,6 @@
-import {getRelaySockets, joinRoom} from 'trystero'
-import {dmOthers, isDm, materialize, missingFor, validEvent, visibleTo} from './history'
+import {getRelaySockets, joinRoom, selfId} from 'trystero'
+import {canAccept, dmMembers, dmOthers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
+import {openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {lowLatencySdp, randomId} from './util'
 import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
@@ -27,6 +28,9 @@ export type Hooks = {
   profile(uid: string, p: Profile): void
   myProfile(): Profile
   sfx(s: Session, id: string, peerId: string): void
+  pinOf(uid: string): string | undefined
+  pin(uid: string, pk: string): void
+  toast(text: string): void
 }
 type Incoming = {meta: FileMeta; parts: Blob[]; got: number; source: string}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -62,15 +66,21 @@ export class Session {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
   private wanted = new Map<string, FileMeta>()
   private serving = new Set<string>()
   private statTimer: ReturnType<typeof setInterval>
+  private plain = new Map<string, Ev>() // açılmış hali; ekran bunu gösterir, ağa 'events' gider
+  private authed = new Map<string, string>() // bağlantı → imzasıyla kanıtlanmış kimlik
+  private waiting = new Map<string, (() => void)[]>()
+  private inbox: Promise<unknown> = Promise.resolve()
+  private outbox: Promise<unknown> = Promise.resolve()
+  private fileCh = new Map<string, string>()
 
-  constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[]) {
+  constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[], private identity: Promise<Identity>) {
     this.view = materialize([], fallbackTitle)
     this.room = joinRoom(
       {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, rtcPolyfill: LowLatencyPC, ...(turn.length ? {turnConfig: turn} : {})} as never,
@@ -83,27 +93,29 @@ export class Session {
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'),
     }
-    this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.gotHello(p, peerId)
-    this.a.prof.onMessage = (d: {uid: string} & Profile) => {
-      if (!d || typeof d.uid !== 'string') return
+    this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.whenAuthed(peerId, () => this.gotHello(p, peerId))
+    this.a.auth.onMessage = (d: {uid: string; pk: string; sig: string}, {peerId}: {peerId: string}) => void this.gotAuth(d, peerId)
+    this.a.prof.onMessage = (d: {uid: string} & Profile, {peerId}: {peerId: string}) => {
+      if (!d || d.uid !== this.authed.get(peerId)) return
       const color = typeof d.color === 'string' && /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : undefined
       const avatar = typeof d.avatar === 'string' && d.avatar.startsWith('data:image/jpeg;base64,') && d.avatar.length < 60_000 ? d.avatar : undefined
       this.hooks.profile(d.uid, {color, avatar})
     }
     this.a.sfx.onMessage = (id: string, {peerId}: {peerId: string}) => { if (typeof id === 'string') this.hooks.sfx(this, id, peerId) }
     this.a.ids.onMessage = (d: {uid?: string; ids?: string[]}, {peerId}: {peerId: string}) => {
-      if (!d || !Array.isArray(d.ids) || typeof d.uid !== 'string') return
-      this.pushEvents(missingFor(this.events, d.ids).filter(e => visibleTo(e, d.uid!)), peerId)
+      if (!d || !Array.isArray(d.ids)) return
+      // Kim olduğu kendi beyanından değil, kanıtından alınır.
+      this.whenAuthed(peerId, () => this.pushEvents(missingFor(this.events, d.ids!).filter(e => visibleTo(e, this.authed.get(peerId)!)), peerId))
     }
-    this.a.seen.onMessage = (d: {uid: string; ch: string; ts: number}) => {
-      if (!d || typeof d.uid !== 'string' || typeof d.ch !== 'string' || !Number.isFinite(d.ts)) return
+    this.a.seen.onMessage = (d: {uid: string; ch: string; ts: number}, {peerId}: {peerId: string}) => {
+      if (!d || d.uid !== this.authed.get(peerId) || typeof d.ch !== 'string' || !Number.isFinite(d.ts)) return
       if (isDm(d.ch) && !d.ch.split(':').includes(this.me.uid)) return
       const m = this.seen.get(d.ch) ?? new Map<string, number>()
       if ((m.get(d.uid) ?? 0) < d.ts) { m.set(d.uid, d.ts); this.seen.set(d.ch, m); this.hooks.changed() }
     }
-    this.a.ev.onMessage = (evs: unknown[], {peerId}: {peerId: string}) => this.gotEvents(evs, peerId)
+    this.a.ev.onMessage = (evs: unknown[], {peerId}: {peerId: string}) => { this.inbox = this.inbox.then(() => this.gotEvents(evs, peerId)).catch(() => {}) }
     this.a.typing.onMessage = (ch: string, {peerId}: {peerId: string}) => {
       const p = this.peers.get(peerId)
       if (p && typeof ch === 'string') { this.typing.set(peerId, {name: p.name, ch, until: Date.now() + 3500}); this.hooks.changed() }
@@ -112,22 +124,18 @@ export class Session {
       const p = this.peers.get(peerId)
       if (p) this.hooks.ring(this, p.name)
     }
-    this.a.have.onRequest = async (id: string) => !!(await this.blobOf(id))
+    this.a.have.onRequest = async (id: string, {peerId}: {peerId: string}) => this.mayGet(id, peerId) && !!(await this.blobOf(id))
     this.a.req.onMessage = (d: {id: string; off: number}, {peerId}: {peerId: string}) => void this.serve(peerId, d)
     this.a.chunk.onMessage = (data: ArrayBuffer, {peerId, metadata}: {peerId: string; metadata: {id: string; off: number}}) => this.gotChunk(data, peerId, metadata)
 
     r.onPeerJoin = (peerId: string) => {
       this.linkError = ''
-      this.a.hello.send(this.presence(), {target: peerId})
-      this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}, {target: peerId})
-      this.announce()
-      this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
-      for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
-      this.retryWanted()
+      void this.sendAuth(peerId)
       this.hooks.changed()
     }
     r.onPeerLeave = (peerId: string) => {
       this.peers.delete(peerId); this.typing.delete(peerId); this.stats.delete(peerId)
+      this.authed.delete(peerId); this.waiting.delete(peerId)
       this.onPeerLeft?.(peerId)
       this.announce()
       for (const inc of this.incoming.values()) if (inc.source === peerId) { inc.source = ''; void this.locate(inc.meta) }
@@ -139,12 +147,96 @@ export class Session {
 
   private async loadStored() {
     const old = await db.loadEvents(this.code).catch(() => [])
-    for (const e of old) this.events.set(e.id, e)
+    const id = await this.identity
+    for (const e of old) {
+      this.events.set(e.id, e)
+      const open = await this.reveal(e, id)
+      if (open) this.plain.set(e.id, open)
+    }
+    await this.purge()
     this.rebuild()
     if (old.length) this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]})
   }
 
-  private rebuild() { this.view = materialize(this.events.values(), this.fallbackTitle); this.hooks.changed() }
+  private rebuild() {
+    this.view = materialize(this.plain.values(), this.fallbackTitle)
+    this.fileCh.clear()
+    for (const m of this.view.byId.values()) if (m.file) this.fileCh.set(m.file.id, m.ch)
+    this.hooks.changed()
+  }
+
+  // Bağlantının karşı ucu kimliğini imzayla kanıtlar. İmza iki ucun bağlantı numarasını içerir:
+  // başkasına verilmiş kanıt burada geçmez, araya giren biri de kanıtı aktaramaz.
+  private proofText(uid: string, from: string, to: string) { return `telsiz-auth-1|${this.code}|${uid}|${from}|${to}` }
+
+  private async sendAuth(peerId: string) {
+    const id = await this.identity
+    const sig = await signText(id, this.proofText(this.me.uid, selfId, peerId))
+    this.a.auth.send({uid: this.me.uid, pk: id.pk, sig}, {target: peerId})
+  }
+
+  private async gotAuth(d: {uid: string; pk: string; sig: string}, peerId: string) {
+    if (!d || typeof d.uid !== 'string' || d.uid === this.me.uid || !validPk(d.pk) || typeof d.sig !== 'string') return
+    if (!await verifyText(d.pk, this.proofText(d.uid, peerId, selfId), d.sig)) return
+    const pin = pinResult(this.hooks.pinOf(d.uid), d.pk)
+    if (pin === 'conflict') return
+    if (pin === 'new') this.hooks.pin(d.uid, d.pk)
+    this.authed.set(peerId, d.uid)
+    for (const f of this.waiting.get(peerId) ?? []) f()
+    this.waiting.delete(peerId)
+    this.a.hello.send(this.presence(), {target: peerId})
+    this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}, {target: peerId})
+    this.announce()
+    this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
+    for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
+    this.retryWanted()
+    this.hooks.changed()
+  }
+
+  private whenAuthed(peerId: string, f: () => void) {
+    if (this.authed.has(peerId)) return f()
+    const list = this.waiting.get(peerId) ?? []
+    if (list.length < 8) this.waiting.set(peerId, [...list, f])
+  }
+
+  // Şifreli olayın açılmış hali. Bu cihaz üye değilse boş döner.
+  private async reveal(e: Ev, id: Identity): Promise<Ev | null> {
+    if (e.t !== 'sealed') return e
+    try {
+      const inner = await openBox(id, e.box, this.me.uid, e.pk!) as Record<string, unknown>
+      const open = {...inner, id: e.id, ts: e.ts, uid: e.uid, name: e.name, ch: e.ch}
+      return validEvent(open) ? open : null
+    } catch { return null }
+  }
+
+  // Silinen mesajın metni, düzenlemeleri, tepkileri ve dosyası cihazdan gerçekten kalkar.
+  private async purge() {
+    const gone: string[] = []
+    for (const del of [...this.plain.values()]) {
+      if (del.t !== 'del') continue
+      const m = this.plain.get(del.target)
+      if (!m || !shouldPurge(m, del)) continue
+      for (const e of [...this.plain.values()]) if (e.id === m.id || (e as {target?: string}).target === m.id) if (e.t !== 'del') gone.push(e.id)
+      const file = m.t === 'msg' ? m.file : undefined
+      if (file) {
+        this.blobs.delete(file.id); this.incoming.delete(file.id); this.wanted.delete(file.id); this.transfers.delete(file.id)
+        const url = this.urls.get(file.id)
+        if (url) { URL.revokeObjectURL(url); this.urls.delete(file.id) }
+        await db.deleteFile(file.id).catch(() => {})
+      }
+    }
+    for (const id of gone) { this.plain.delete(id); this.events.delete(id) }
+    if (gone.length) await db.deleteEvents(this.code, gone).catch(() => {})
+    return new Set(gone)
+  }
+
+  // Özel sohbetin dosyasını sadece üyeleri isteyebilir.
+  private mayGet(fileId: string, peerId: string) {
+    const ch = this.fileCh.get(fileId)
+    if (!isDm(ch)) return true
+    const uid = this.authed.get(peerId)
+    return !!uid && dmMembers(ch!).includes(uid)
+  }
   private presence(): Presence {
     const others: Other[] = [...this.peers.values()].map(p => ({uid: p.uid, name: p.name, voice: p.voice}))
     return {uid: this.me.uid, name: this.me.name, voice: this.voice, others}
@@ -181,20 +273,42 @@ export class Session {
     for (let i = 0; i < evs.length; i += 100) this.a.ev.send(evs.slice(i, i + 100), target ? {target} : undefined)
   }
 
-  private gotEvents(evs: unknown[], from: string) {
+  // İmzası tutmayan ya da kayıtlı anahtarla uyuşmayan olay sessizce düşer.
+  private async trusted(e: Ev) {
+    if (!canAccept(e)) return false
+    if (!e.sig) return true
+    if (!validPk(e.pk) || !await verifyEvent(e)) return false
+    const pin = pinResult(this.hooks.pinOf(e.uid), e.pk)
+    if (pin === 'new') this.hooks.pin(e.uid, e.pk)
+    return pin !== 'conflict'
+  }
+
+  private async gotEvents(evs: unknown[], from: string) {
     if (!Array.isArray(evs)) return
-    const fresh = evs.filter((e): e is Ev => validEvent(e) && !this.events.has(e.id) && visibleTo(e, this.me.uid))
+    const id = await this.identity
+    const fresh: Ev[] = []
+    for (const e of evs) {
+      if (!validEvent(e) || this.events.has(e.id) || !visibleTo(e, this.me.uid) || !await this.trusted(e)) continue
+      const open = await this.reveal(e, id)
+      this.events.set(e.id, e)
+      if (open) this.plain.set(e.id, open)
+      fresh.push(e)
+    }
     if (!fresh.length) return
-    for (const e of fresh) this.events.set(e.id, e)
-    void db.saveEvents(this.code, fresh)
+    const gone = await this.purge()
+    const kept = fresh.filter(e => !gone.has(e.id))
+    if (!kept.length) return
+    void db.saveEvents(this.code, kept)
     this.rebuild()
-    for (const e of fresh) if (e.t === 'msg') {
+    for (const w of kept) {
+      const e = this.plain.get(w.id)
+      if (e?.t !== 'msg') continue
       this.hooks.message(this, e)
       if (e.file && e.file.size <= AUTO_FETCH && !this.hooks.getGameMode()) void this.fetchFile(e.file)
     }
     // İki kişi birbirine doğrudan bağlanamasa da ortak arkadaş üzerinden yazışma ulaşır.
     const others = Object.keys(this.room.getPeers()).filter(p => p !== from)
-    const open = fresh.filter(e => !isDm((e as {ch?: string}).ch))
+    const open = kept.filter(e => !isDm((e as {ch?: string}).ch))
     if (others.length && open.length) this.a.ev.send(open, {target: others})
   }
 
@@ -203,14 +317,39 @@ export class Session {
     const parent = x.target ? this.view.byId.get(x.target) : undefined
     const ch = x.ch ?? (parent && isDm(parent.ch) ? parent.ch : undefined)
     const ev = {...e, ...(ch ? {ch} : {}), id: randomId(), ts: Date.now(), uid: this.me.uid, name: this.me.name} as Ev
-    this.events.set(ev.id, ev)
-    void db.saveEvents(this.code, [ev])
+    if (isDm(ch)) {
+      const missing = dmMembers(ch!).filter(u => !this.hooks.pinOf(u))
+      if (missing.length) {
+        const names = missing.map(u => this.view.people.get(u) ?? 'Biri').join(', ')
+        this.hooks.toast(`${names} yeni sürüme geçip bağlanınca özel mesaj atabilirsin`)
+        return ev
+      }
+    }
+    this.plain.set(ev.id, ev)
+    this.rebuild()
+    this.outbox = this.outbox.then(() => this.publish(ev)).catch(e => console.warn('gönderilemedi', e))
+    return ev
+  }
+
+  // Ekrana hemen düşer; şifreleme ve imza arkada sırayla yapılır, sıra bozulmaz.
+  private async publish(ev: Ev) {
+    const id = await this.identity
+    const ch = (ev as {ch?: string}).ch
+    if (!this.plain.has(ev.id)) return
+    let wire: Ev = ev
+    if (isDm(ch)) {
+      const {id: _i, ts: _t, uid: _u, name: _n, ch: _c, ...inner} = ev as Ev & {ch: string}
+      const members = Object.fromEntries(dmMembers(ch!).map(u => [u, this.hooks.pinOf(u)!]))
+      wire = {t: 'sealed', id: ev.id, ts: ev.ts, uid: ev.uid, name: ev.name, ch: ch!, box: await sealBox(id, inner, members)}
+    }
+    const signed = await signEvent(id, wire)
+    this.events.set(ev.id, signed)
+    void db.saveEvents(this.code, [signed])
+    if (ev.t === 'del') { const gone = await this.purge(); if (gone.size) this.rebuild() }
     if (isDm(ch)) {
       const target = this.peerIdsOf(ch!)
-      if (target.length) this.a.ev.send([ev], {target})
-    } else this.a.ev.send([ev])
-    this.rebuild()
-    return ev
+      if (target.length) this.a.ev.send([signed], {target})
+    } else this.a.ev.send([signed])
   }
 
   private peerIdsOf(ch: string) {
@@ -284,6 +423,7 @@ export class Session {
     this.transfers.set(meta.id, {status: 'finding', got: inc.got, total: meta.size})
     this.hooks.changed()
     for (const peerId of Object.keys(this.room.getPeers())) {
+      if (!this.mayGet(meta.id, peerId)) continue
       const yes = await this.a.have.request(meta.id, {target: peerId, timeoutMs: 5000}).catch(() => false)
       if (yes && this.room.getPeers()[peerId]) {
         inc.source = peerId
@@ -302,7 +442,7 @@ export class Session {
   }
 
   private async serve(peerId: string, d: {id: string; off: number}) {
-    if (!d || typeof d.id !== 'string' || !Number.isSafeInteger(d.off) || d.off < 0) return
+    if (!d || typeof d.id !== 'string' || !Number.isSafeInteger(d.off) || d.off < 0 || !this.mayGet(d.id, peerId)) return
     const blob = await this.blobOf(d.id)
     if (!blob) return
     const key = `${peerId}:${d.id}`

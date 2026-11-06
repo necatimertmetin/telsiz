@@ -4,6 +4,7 @@ import {Call, type AudioPrefs} from './call'
 import * as db from './db'
 import {androidPlugin, desktop, isAndroidApp} from './native'
 import {decodeBackup, encodeBackup, isNewer, newRoomCode, randomId} from './util'
+import {loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
 import {playSfx} from './sfx'
 import type {Ev, Profile} from './types'
 
@@ -53,7 +54,10 @@ class App {
   search = ''
   profiles = load<Record<string, Profile>>('prof', {})
   rejoin: string | null = null
-  backupSaved = load<{v: boolean}>('backup', {v: false}).v
+  backupSaved = load<{v: boolean}>('backup2', {v: false}).v
+  pins = load<Record<string, string>>('pins', {})
+  keys: KeysJwk | null = load<{k: KeysJwk | null}>('keys', {k: null}).k
+  identity!: Promise<Identity>
   update: {label: string; run: () => void} | null = null
   sourcePicker: {id: string; name: string; thumb: string}[] | null = null
 
@@ -66,6 +70,15 @@ class App {
     if (!this.me.uid) this.me.uid = randomId()
     // Tarayıcı yer açarken bu sitenin verisini silmesin diye kalıcı depolama istenir.
     void navigator.storage?.persist?.().catch(() => {})
+    // Anahtar ilk açılışta sessizce üretilir, kullanıcı hiçbir şey yapmaz.
+    this.identity = (validJwk(this.keys) ? loadIdentity(this.keys) : newIdentity()).then(id => {
+      this.keys = id.jwk
+      save('keys', {k: id.jwk})
+      this.pins[this.me.uid] = id.pk
+      save('pins', this.pins)
+      this.bump()
+      return id
+    })
     if (this.me.name) this.start()
     desktop()?.onHotkey(k => {
       const c = this.liveCall()
@@ -92,23 +105,27 @@ class App {
 
   backupCode() {
     const color = this.profiles[this.me.uid]?.color
-    return encodeBackup({uid: this.me.uid, name: this.me.name, ...(color ? {color} : {}), groups: this.groups.map(g => {
+    return encodeBackup({uid: this.me.uid, name: this.me.name, ...(this.keys ? {keys: this.keys} : {}), ...(color ? {color} : {}), groups: this.groups.map(g => {
       const s = this.sessions.get(g.code)
       return {code: g.code, title: s?.view.title ?? g.title}
     })})
   }
 
-  markBackupSaved() { this.backupSaved = true; save('backup', {v: true}); this.bump() }
+  markBackupSaved() { this.backupSaved = true; save('backup2', {v: true}); this.bump() }
 
   // Kimlik değiştiği için temiz başlangıç gerekir: bağlantılar yeni kimlikle yeniden kurulur.
   importBackup(input: string): boolean {
     const b = decodeBackup(input)
     if (!b) return false
     const have = new Set(b.groups.map(g => g.code))
-    save('me', {uid: b.uid, name: b.name})
+    // Eski kodda anahtar yok: arkadaşlar o kimliği eski anahtarıyla tanıyor, yeni kimlikle dönülür.
+    const uid = b.keys ? b.uid : randomId()
+    save('me', {uid, name: b.name})
+    if (b.keys) save('keys', {k: b.keys}); else localStorage.removeItem('telsiz.keys')
     save('groups', [...b.groups, ...this.groups.filter(g => !have.has(g.code))])
-    if (b.color) save('prof', {...this.profiles, [b.uid]: {...this.profiles[b.uid], color: b.color}})
-    save('backup', {v: true})
+    if (b.color) save('prof', {...this.profiles, [uid]: {...this.profiles[uid], color: b.color}})
+    save('backup2', {v: true})
+    localStorage.removeItem('telsiz.pins')
     location.reload()
     return true
   }
@@ -193,7 +210,10 @@ class App {
       profile: (uid, p) => { this.profiles[uid] = p; save('prof', this.profiles); this.bump() },
       myProfile: () => this.profiles[this.me.uid] ?? {},
       sfx: (se, id, peerId) => this.onSfx(se, id, peerId),
-    }, this.turnServers())
+      pinOf: uid => this.pins[uid],
+      pin: (uid, pk) => { this.pins[uid] = pk; save('pins', this.pins) },
+      toast: t => this.showToast(t),
+    }, this.turnServers(), this.identity)
     this.sessions.set(g.code, s)
     this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode, j => {
       if (this.prefs.sounds) beep(j ? [[523, .07], [659, .09]] : [[659, .07], [440, .09]], .04)

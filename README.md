@@ -30,6 +30,16 @@ Telsiz'in sunucusu yok, o yüzden ödenecek fatura da yok.
 - Bulduktan sonra ses, görüntü, mesaj ve dosya WebRTC ile doğrudan cihazdan cihaza, uçtan uca şifreli akar.
 - Grup kodu grubun tek anahtarıdır. Kodu bilen gruba girer.
 
+## Güvenlik
+
+- Her cihaz kendi anahtarını üretir, kullanıcı bir şey yapmaz. Mesajlar imzalanır, kimlik ilk görülen anahtara bağlanır ve başka anahtarla gelen reddedilir.
+- Özel sohbet mesajları uçtan uca şifrelenir, cihazda da şifreli durur. Özel sohbet dosyaları sadece üyelere gönderilir.
+- Silinen mesajın metni, düzenlemeleri ve dosyası cihazlardan kalkar, gruba yeni girene gitmez. Kapalı cihazdaki kopya, cihaz açılıp eşitlenince silinir.
+- Yedek kodu gizli anahtarı taşır, şifre gibi saklanmalı.
+- Davet linki olan kanalları ve eski kanal mesajlarını görür, kimseyi gruptan atma özelliği yok. Link sızarsa yeni grup kurulmalı.
+- Kimlik ilk görüşte güvene dayanır. Bu sürümden eski mesajlar imzasız ve eski özel mesajlar cihazda şifresiz kalır.
+- Cihaza erişen biri, o cihazdaki hesabı kullanabilir.
+
 ## Sınırlar
 
 - Mesaj sadece grupta biri çevrimiçiyken yayılır. Herkes kapalıyken yazılan, ilk açılan kişide durur ve sonra eşitlenir.
@@ -53,6 +63,7 @@ npx vite preview --port 4173
 npm run e2e
 node e2e/relay.mjs
 node e2e/features.mjs
+node e2e/security.mjs
 ```
 
 Masaüstü ve Android kabukları canlı siteyi açar, bu yüzden web'e çıkan düzeltme yeniden kurulum gerektirmez. Kabuğun kendisi değişirse:

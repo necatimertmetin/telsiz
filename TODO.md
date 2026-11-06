@@ -22,6 +22,18 @@ Hepsi `gelistirme` dalında birikir. Liste bitip tüm testler geçince `main`'e 
 - [ ] CS üstünde konuşan listesi (Mert, oyunda)
 - [x] Sürüm numaraları, tek Release
 
+## 1.3.0
+
+- [x] Yeni logo
+- [x] Cihaz anahtarı, imza, kimlik sabitleme
+- [x] Özel mesaj şifreleme
+- [x] Gerçek silme
+- [x] Yedek kodunda anahtar
+
+## Sonra
+
+- [ ] Gruptan atma
+
 ## Mert gerekli
 
 - GIF arama: Tenor ya da Giphy ücretsiz API anahtarı lazım, hesabı Mert açar.

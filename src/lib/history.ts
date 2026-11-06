@@ -1,4 +1,4 @@
-import type {Channel, Ev, FileMeta, Msg, Poll, Sched, View} from './types'
+import type {Box, Channel, Ev, FileMeta, Msg, Poll, Sched, View} from './types'
 
 export const MAX_TEXT = 4000
 const str = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max
@@ -24,6 +24,11 @@ export function visibleTo(e: Ev, uid: string): boolean {
   return !isDm(ch) || ch!.split(':').includes(uid)
 }
 
+function validBox(b: unknown): b is Box {
+  const x = b as Box
+  return !!x && str(x.iv, 32) && str(x.ct, MAX_TEXT * 12) && !!x.keys && typeof x.keys === 'object' && Object.keys(x.keys).length <= 20 && Object.values(x.keys).every(k => !!k && str(k.iv, 32) && str(k.ct, 128))
+}
+
 function validPoll(p: unknown): p is Poll {
   const x = p as Poll
   return !!x && str(x.q, 200) && Array.isArray(x.opts) && x.opts.length >= 2 && x.opts.length <= 8 && x.opts.every(o => str(o, 80))
@@ -46,11 +51,26 @@ export function validEvent(e: unknown): e is Ev {
     case 'pin': return optCh(x.ch) && str(x.target, 64) && typeof x.on === 'boolean'
     case 'vote': return optCh(x.ch) && str(x.target, 64) && Number.isInteger(x.opt) && typeof x.on === 'boolean'
     case 'sched': return Array.isArray(x.days) && x.days.every(d => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6) && typeof x.time === 'string' && /^\d\d:\d\d$/.test(x.time) && typeof x.on === 'boolean'
+    case 'sealed': return str(x.ch, CH_MAX) && isDm(x.ch) && validBox(x.box)
     case 'chan': return str(x.chId, 64) && str(x.title, 40)
     case 'group': return str(x.title, 40)
     default: return false
   }
 }
+
+// Bu tarihten sonra imzasız olay kabul edilmez. Eski mesajlar imzasız kaldığı için geçmiş bozulmasın diye ayrım var.
+export const LEGACY_UNTIL = Date.UTC(2026, 10, 10)
+
+export function canAccept(e: Ev) {
+  const ch = (e as {ch?: string}).ch
+  if (e.sig ? false : e.ts >= LEGACY_UNTIL) return false
+  return !isDm(ch) || !e.sig || dmMembers(ch!).includes(e.uid)
+}
+
+export const pinResult = (pinned: string | undefined, pk: string) => !pinned ? 'new' : pinned === pk ? 'same' : 'conflict'
+
+// Sadece mesajın sahibi silebilir, mesajdan eski tarihli silme sayılmaz.
+export const shouldPurge = (m: Ev, del: Ev) => m.uid === del.uid && del.ts >= m.ts
 
 const order = (a: Ev, b: Ev) => a.ts - b.ts || (a.id < b.id ? -1 : 1)
 

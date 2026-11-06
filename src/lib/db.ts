@@ -26,6 +26,16 @@ export async function loadEvents(code: string): Promise<Ev[]> {
   const rows = await req(t.objectStore('events').index('g').getAll(code))
   return rows.map((r: {e: Ev}) => r.e)
 }
+export async function deleteEvents(code: string, ids: string[]) {
+  const t = (await db()).transaction('events', 'readwrite')
+  for (const id of ids) t.objectStore('events').delete(`${code}:${id}`)
+  return done(t)
+}
+export async function deleteFile(id: string) {
+  const t = (await db()).transaction('files', 'readwrite')
+  t.objectStore('files').delete(id)
+  return done(t)
+}
 export async function dropGroup(code: string) {
   const t = (await db()).transaction('events', 'readwrite')
   const keys = await req(t.objectStore('events').index('g').getAllKeys(code))

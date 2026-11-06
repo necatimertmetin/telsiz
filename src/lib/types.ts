@@ -2,8 +2,10 @@ export type Poll = {q: string; opts: string[]}
 export type Sched = {days: number[]; time: string; on: boolean}
 export type FileMeta = {id: string; name: string; size: number; type: string}
 
-type Base = {id: string; ts: number; uid: string; name: string}
+type Base = {id: string; ts: number; uid: string; name: string; pk?: string; sig?: string}
+export type Box = {iv: string; ct: string; keys: Record<string, {iv: string; ct: string}>}
 export type Ev = Base & (
+  | {t: 'sealed'; ch: string; box: Box}
   | {t: 'msg'; ch: string; text: string; file?: FileMeta; re?: string; poll?: Poll}
   | {t: 'edit'; target: string; text: string; ch?: string}
   | {t: 'del'; target: string; ch?: string}
