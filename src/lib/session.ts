@@ -1,5 +1,5 @@
 import {getRelaySockets, joinRoom, selfId} from 'trystero'
-import {canAccept, dmMembers, dmOthers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
+import {canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
 import {openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {lowLatencySdp, randomId} from './util'
@@ -176,7 +176,8 @@ export class Session {
   }
 
   private async gotAuth(d: {uid: string; pk: string; sig: string}, peerId: string) {
-    if (!d || typeof d.uid !== 'string' || d.uid === this.me.uid || !validPk(d.pk) || typeof d.sig !== 'string') return
+    if (!d || typeof d.uid !== 'string' || !validPk(d.pk) || typeof d.sig !== 'string') return
+    await this.identity // kendi anahtarım kayıtlı olsun: aynı hesabın diğer cihazı onunla karşılaştırılır
     if (!await verifyText(d.pk, this.proofText(d.uid, peerId, selfId), d.sig)) return
     const pin = pinResult(this.hooks.pinOf(d.uid), d.pk)
     if (pin === 'conflict') return
@@ -256,6 +257,7 @@ export class Session {
 
   private gotHello(p: Presence, peerId: string) {
     if (!p || typeof p.uid !== 'string' || typeof p.name !== 'string' || !p.voice) return
+    if (p.uid === this.me.uid) return // aynı hesabın diğer cihazı: eşitlenir, üye olarak görünmez
     const others = Array.isArray(p.others) ? p.others.filter(o => o && typeof o.uid === 'string' && typeof o.name === 'string' && o.voice).slice(0, 20) : []
     const old = this.peers.get(peerId)
     const next = {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice}, others}
@@ -353,8 +355,8 @@ export class Session {
   }
 
   private peerIdsOf(ch: string) {
-    const uids = new Set(dmOthers(ch, this.me.uid))
-    return [...this.peers].filter(([, p]) => uids.has(p.uid)).map(([id]) => id)
+    const uids = new Set(dmMembers(ch))
+    return [...this.authed].filter(([, uid]) => uids.has(uid)).map(([id]) => id)
   }
 
   sendSeen(ch: string, ts: number) {
