@@ -73,6 +73,18 @@ export function orderCodecs<T extends {mimeType: string}>(codecs: T[], first: st
   return [...codecs.filter(is), ...codecs.filter(c => !is(c))]
 }
 
+export type ScreenStat = {w: number; h: number; fps: number; mbps: number; limit?: string}
+
+export function fmtScreenStat(s: ScreenStat) {
+  const why = s.limit === 'bandwidth' ? ' · hat yetmiyor' : s.limit === 'cpu' ? ' · işlemci yetmiyor' : ''
+  return `${s.w}×${s.h} · ${Math.round(s.fps)} fps · ${s.mbps.toFixed(1).replace('.', ',')} Mb/sn${why}`
+}
+
+// Yayıncı birden çok kişiye gönderir: en kötü durumdaki izleyici gösterilir.
+export function worstStat(list: ScreenStat[]): ScreenStat | undefined {
+  return [...list].sort((a, b) => a.h - b.h || a.fps - b.fps)[0]
+}
+
 export function lowLatencySdp(sdp: string): string {
   return sdp.replace(/(a=fmtp:\d+ minptime=10[^\r\n]*\r?\n)(?!a=ptime)/g, '$1a=ptime:10\r\n')
 }

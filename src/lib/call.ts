@@ -1,5 +1,6 @@
 import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
+import {worstStat, type ScreenStat} from './util'
 import {callStarted, callStopped, pickScreenCodec, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
@@ -37,6 +38,8 @@ export class Call {
   private audios = new Map<string, HTMLAudioElement>()
   private meters = new Map<string, {an: AnalyserNode; src: MediaStreamAudioSourceNode}>()
   private ctx?: AudioContext
+  screenStats = new Map<string, ScreenStat>() // izlenen yayında peerId, kendi yayınında 'me'
+  private statBytes = new Map<string, number>()
   private screenRaw?: {raw: MediaStreamTrack; src: MediaStreamAudioSourceNode; gain: GainNode}
   private localAn?: AnalyserNode
   private timer?: ReturnType<typeof setInterval>
@@ -84,7 +87,7 @@ export class Call {
     this.localAn = an
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
-    this.tuner = setInterval(() => { void this.tune(); this.sync() }, 3000)
+    this.tuner = setInterval(() => { void this.tune(); void this.sampleScreen(); this.sync() }, 3000)
     this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false}
     this.s.announce()
     void callStarted()
@@ -240,6 +243,38 @@ export class Call {
   hasRelay(uid: string) { return this.relayed.has(uid) }
 
   // Gecikme ayarları: alıcı tamponu en aza, ses öncelikli. Yeni akışta alıcılar değiştiği için tekrar çalışır.
+  private async readStat(key: string, target: RTCRtpSender | RTCRtpReceiver, type: string, field: 'bytesSent' | 'bytesReceived') {
+    let out: ScreenStat | undefined
+    ;(await target.getStats()).forEach(r => {
+      if (r.type !== type || r.kind !== 'video' || !r.frameWidth) return
+      const before = this.statBytes.get(key)
+      this.statBytes.set(key, r[field])
+      out = {w: r.frameWidth, h: r.frameHeight, fps: r.framesPerSecond ?? 0, mbps: before === undefined ? 0 : (r[field] - before) * 8 / 3e6, limit: r.qualityLimitationReason}
+    })
+    return out
+  }
+
+  // Yayının gerçek durumu: seçilen kalite değil, o an giden ya da gelen görüntü.
+  private async sampleScreen() {
+    const mine = this.streams.screen?.getVideoTracks()[0]
+    const peers = Object.entries(this.s.room.getPeers() as Record<string, RTCPeerConnection>)
+    const next = new Map<string, ScreenStat>(), sent: ScreenStat[] = []
+    for (const [id, pc] of peers) {
+      const sender = mine && pc.getSenders().find(x => x.track === mine)
+      const got = sender && await this.readStat('out:' + id, sender, 'outbound-rtp', 'bytesSent').catch(() => undefined)
+      if (got) sent.push(got)
+      const track = this.remote.get(id)?.screen?.getVideoTracks()[0]
+      const receiver = track && pc.getReceivers().find(x => x.track === track)
+      const seen = receiver && await this.readStat('in:' + id, receiver, 'inbound-rtp', 'bytesReceived').catch(() => undefined)
+      if (seen) next.set(id, seen)
+    }
+    const worst = worstStat(sent)
+    if (worst) next.set('me', worst)
+    if (!next.size && !this.screenStats.size) return
+    this.screenStats = next
+    this.changed()
+  }
+
   private async tune() {
     const game = this.gameMode()
     const local = new Map<string, Kind>()

@@ -51,7 +51,7 @@ class App {
   calls = new Map<string, Call>()
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})

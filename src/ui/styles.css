@@ -130,6 +130,7 @@ video.mirror{transform:scaleX(-1)}
 .tile:hover .tileact,.tile.hasvol .tileact{display:flex}
 .tile.hasvol .tileact{left:6px;flex-wrap:wrap;justify-content:flex-end}
 .tile.hasvol .tileact input{flex:1 1 60px;width:auto;min-width:0}
+.tilestat{position:absolute;left:8px;bottom:36px;max-width:calc(100% - 16px);background:rgba(0,0,0,.6);color:#fff;padding:2px 7px;border-radius:6px;font-size:12px;font-variant-numeric:tabular-nums;pointer-events:none}
 .tilevol{font-size:12.5px;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums}
 .tileact input{width:80px;accent-color:var(--acc)}
 .stagehint{text-align:center;padding:0 16px 4px}

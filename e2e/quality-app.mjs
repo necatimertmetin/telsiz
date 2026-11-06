@@ -24,7 +24,17 @@ await p.getByLabel('Davet linki ya da kod').fill(`https://x/#/katil/${code}`)
 await p.getByRole('button', {name: 'Katıl'}).click()
 await w.waitForFunction(() => window.telsiz.session.peers.size === 1, null, {timeout: 60000})
 for (const x of [w, p]) await x.evaluate(() => { window.telsiz.go({kind: 'voice'}); return window.telsiz.joinVoice() })
-await w.evaluate(async () => { const [s] = await window.telsizDesktop.listSources(); await window.telsizDesktop.pickSource(s.id, false); await window.telsiz.call.toggleScreen(false) })
+// Gerçek akış: düğmeye basılır, sesli seçim baştan açıktır, kaynak seçilir.
+await w.getByRole('button', {name: 'Ekran paylaş'}).click()
+await w.getByRole('button', {name: 'Sesli', exact: true}).waitFor({timeout: 8000})
+console.log(await w.getByRole('button', {name: 'Sesli', exact: true}).getAttribute('aria-pressed') === 'true' ? 'OK   sesli seçim açık geliyor' : 'FAIL sesli seçim kapalı')
+await w.locator('.sources button').first().click()
+await w.waitForFunction(() => window.telsiz.call.streams.screen, null, {timeout: 15000})
+await p.waitForFunction(() => [...window.telsiz.call.remote.values()].some(r => r.screen?.getAudioTracks().length), null, {timeout: 20000})
+console.log('OK   izleyiciye ses izi ulaştı')
+await p.locator('.tilestat').waitFor({timeout: 12000})
+await new Promise(r => setTimeout(r, 4000))
+console.log('izleyici gösterge:', await p.locator('.tilestat').innerText())
 await w.waitForTimeout(9000)
 const out = await w.evaluate(async () => {
   const res = []

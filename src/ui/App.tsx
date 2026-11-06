@@ -252,13 +252,18 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
 
 function SourcePicker() {
   const list = app.sourcePicker
-  const [audio, setAudio] = useState(false)
+  const audio = app.prefs.shareAudio
+  const setAudio = (v: boolean) => { app.prefs.shareAudio = v; app.savePrefs() }
   if (!list) return null
   const close = () => { app.sourcePicker = null; app.bump() }
   return (
     <Modal title="Ne paylaşılsın?" onClose={close}>
-      <label className="check"><input type="checkbox" checked={audio} onChange={e => setAudio(e.target.checked)} /> Bilgisayarın sesini de paylaş</label>
-      {audio && <p className="dim small">Windows tüm sesi yakalar. Arkadaşların kendi sesini yankı olarak duyarsa kapat.</p>}
+      <p>Bilgisayarın sesi de gitsin mi?</p>
+      <div className="row">
+        <button className={'btn' + (audio ? ' pri' : '')} aria-pressed={audio} onClick={() => setAudio(true)}>Sesli</button>
+        <button className={'btn' + (audio ? '' : ' pri')} aria-pressed={!audio} onClick={() => setAudio(false)}>Sessiz</button>
+      </div>
+      {audio && <p className="dim small">Windows tüm sesi yakalar. Arkadaşların kendi sesini yankı olarak duyarsa Sessiz'e al.</p>}
       <div className="sources">
         {list.map(x => (
           <button key={x.id} onClick={async () => {

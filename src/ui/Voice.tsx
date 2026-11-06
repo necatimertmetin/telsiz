@@ -1,6 +1,7 @@
 import {useEffect, useRef, useState} from 'react'
 import {app} from '../lib/app'
 import {SCREEN_Q, type Call, type ScreenQ} from '../lib/call'
+import {fmtScreenStat} from '../lib/util'
 import {canShareScreen, desktop, isAndroidApp, setSpeaker, speakerOn} from '../lib/native'
 import type {Session} from '../lib/session'
 import {SFX} from '../lib/sfx'
@@ -28,11 +29,13 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
   const deafened = app.liveSession()?.voice.deaf
   const hasAudio = !!t.screen && !!t.stream && t.stream.getAudioTracks().length > 0
   const volKey = t.screen ? 's:' + t.uid : t.uid
+  const stat = t.screen ? app.liveCall()?.screenStats.get(t.self ? 'me' : t.peerId ?? '') : undefined
   return (
     <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '')} onClick={onClick}>
       {t.stream
         ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={app.volumes[volKey] ?? 1} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
+      {stat && <div className="tilestat" role="status">{t.self ? 'En zayıf izleyici: ' : ''}{fmtScreenStat(stat)}</div>}
       <div className="tilebar">
         {t.muted && <Icon n="micOff" s={15} />}{t.deaf && <Icon n="headOff" s={15} />}{t.screen && <Icon n="screen" s={15} />}{hasAudio && <span className="saudio" title={t.self ? 'Ekranının sesi yayında' : 'Ekran sesi geliyor'}><Icon n="speaker" s={15} /></span>}
         <span className="ell">{t.name}{t.self ? ' (sen)' : ''}</span>

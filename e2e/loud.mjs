@@ -50,6 +50,14 @@ const high = await peak()
 console.log('yüksek kaynak 0.95 →', high)
 check(high.max <= 1.01, 'yüksek ses patlamıyor')
 
+// Anlık yayın bilgisi iki tarafta da görünür.
+await a.locator('.tilestat').waitFor({timeout: 12000})
+await b.locator('.tilestat').waitFor({timeout: 12000})
+await new Promise(r => setTimeout(r, 4000))
+console.log('yayıncı:', await a.locator('.tilestat').innerText(), '| izleyici:', await b.locator('.tilestat').innerText())
+check(/\d+×\d+ · \d+ fps · \d+,\d Mb\/sn/.test(await b.locator('.tilestat').innerText()), 'izleyici çözünürlük, fps ve hızı görüyor')
+check(/En zayıf izleyici: \d+×\d+/.test(await a.locator('.tilestat').innerText()), 'yayıncı da görüyor')
+
 // Yayıncı ve izleyici ayarı: düğmeler görünür, yayıncınınki gerçekten giden sesi değiştirir.
 await a.evaluate(() => { window.__src.gain.value = .1 })
 await a.locator('input[aria-label="Yayın ses düzeyi"]').waitFor({timeout: 5000})

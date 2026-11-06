@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {decodeBackup, encodeBackup, fmtDay, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, worstStat} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -54,6 +54,18 @@ describe('orderCodecs', () => {
   it('seçileni öne alır, diğerlerini korur', () => {
     const c = [{mimeType: 'video/VP8'}, {mimeType: 'video/rtx'}, {mimeType: 'video/H264'}, {mimeType: 'video/H264'}]
     expect(orderCodecs(c, 'video/h264').map(x => x.mimeType)).toEqual(['video/H264', 'video/H264', 'video/VP8', 'video/rtx'])
+  })
+})
+
+describe('fmtScreenStat', () => {
+  it('yayın bilgisini yazar, darboğazı söyler', () => {
+    expect(fmtScreenStat({w: 1920, h: 1080, fps: 58.4, mbps: 5.92})).toBe('1920×1080 · 58 fps · 5,9 Mb/sn')
+    expect(fmtScreenStat({w: 1280, h: 720, fps: 30, mbps: 2, limit: 'bandwidth'})).toContain('hat yetmiyor')
+  })
+  it('en kötü izleyiciyi seçer', () => {
+    const a = {w: 1920, h: 1080, fps: 60, mbps: 6}, b = {w: 1920, h: 1080, fps: 20, mbps: 2}, c = {w: 1280, h: 720, fps: 60, mbps: 4}
+    expect(worstStat([a, b, c])).toBe(c)
+    expect(worstStat([a, b])).toBe(b)
   })
 })
 
