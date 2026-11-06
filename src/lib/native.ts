@@ -31,7 +31,10 @@ export async function callStarted() {
 export async function callStopped() {
   await plugin()?.callStop().catch(() => {})
 }
-export const setSpeaker = (on: boolean) => plugin()?.setSpeaker({on}).catch(() => {})
+export let speakerOn = true
+export const setSpeaker = (on: boolean) => { speakerOn = on; return plugin()?.setSpeaker({on}).catch(() => {}) }
+// WebView ses başlayınca yolu kendi seçebiliyor; seçimimizi tekrar uygularız.
+export const reapplySpeaker = () => plugin()?.setSpeaker({on: speakerOn}).catch(() => {})
 
 function toB64(buf: ArrayBuffer) {
   const bytes = new Uint8Array(buf)

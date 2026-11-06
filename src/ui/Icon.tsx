@@ -27,6 +27,8 @@ const P: Record<string, string> = {
   full: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   file: 'M6 3h8l5 5v13H6zM14 3v5h5',
+  chev: 'M6 15l6-6 6 6',
+  check: 'M5 13l4 4L19 7',
 }
 
 export function Icon({n, s = 20}: {n: string; s?: number}) {

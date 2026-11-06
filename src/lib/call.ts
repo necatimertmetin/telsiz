@@ -1,5 +1,5 @@
 import type {Session} from './session'
-import {callStarted, callStopped} from './native'
+import {callStarted, callStopped, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
 export type AudioPrefs = {micId: string; speakerId: string; camId: string; gate: number; noise: boolean}
@@ -159,6 +159,7 @@ export class Call {
       if (!el) { el = new Audio(); el.autoplay = true; this.audios.set(peerId, el) }
       el.srcObject = stream
       void el.play().catch(() => {})
+      setTimeout(reapplySpeaker, 600)
       if (this.ctx) {
         this.meters.get(peerId)?.src.disconnect()
         const src = this.ctx.createMediaStreamSource(stream)
@@ -238,7 +239,7 @@ export class Call {
 
   private async camStream() {
     return navigator.mediaDevices.getUserMedia({
-      video: {deviceId: this.prefs().camId && this.facing === 'user' ? {ideal: this.prefs().camId} : undefined, facingMode: this.facing, width: {ideal: 640}, height: {ideal: 360}, frameRate: {ideal: 24, max: 30}},
+      video: {...(this.prefs().camId ? {deviceId: {exact: this.prefs().camId}} : {facingMode: this.facing}), width: {ideal: 640}, height: {ideal: 360}, frameRate: {ideal: 24, max: 30}},
     })
   }
 
@@ -254,17 +255,25 @@ export class Call {
     this.s.announce()
   }
 
-  async flipCam() {
+  // Telefonlar iki kamerayı aynı anda açamaz: önce eskisi kapanır.
+  private async swapCam() {
     const old = this.streams.cam?.getVideoTracks()[0]
     if (!old) return
-    this.facing = this.facing === 'user' ? 'environment' : 'user'
     old.stop()
     const next = (await this.camStream()).getVideoTracks()[0]
-    this.s.room.replaceTrack(old, next, {target: [...this.sent.cam]})
+    if (this.sent.cam.size) this.s.room.replaceTrack(old, next, {target: [...this.sent.cam]})
     this.streams.cam!.removeTrack(old)
     this.streams.cam!.addTrack(next)
     this.changed()
   }
+
+  async flipCam() {
+    this.facing = this.facing === 'user' ? 'environment' : 'user'
+    this.prefs().camId = ''
+    await this.swapCam()
+  }
+
+  changeCam() { return this.swapCam() }
 
   async toggleScreen() {
     if (!this.s.voice.in) return
