@@ -7,8 +7,9 @@ Arkadaş grupları için hesapsız, sunucusuz sesli ve görüntülü sohbet. İs
 
 ## Neler var
 
-- Sesli ve görüntülü oda, ekran paylaşımı, "herkesi çağır"
-- Gruplar, yazı kanalları, yanıt, düzenleme, silme, tepki
+- Sesli ve görüntülü oda, sesli ekran paylaşımı, cihaz seçim menüleri, "herkesi çağır"
+- Gruplar, yazı kanalları, özel sohbetler, yanıt, düzenleme, silme, tepki, görüldü bilgisi
+- Sesli mesaj, GIF ve resim gösterimi
 - Her türlü dosya, boyut sınırı yok. Dosya sunucuya değil doğrudan arkadaşına gider
 - Geçmiş cihazda durur, grup açılınca herkes birbirini tamamlar
 - Hesap yok, kayıt yok, ücret yok

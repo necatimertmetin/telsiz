@@ -5,9 +5,12 @@ const app = await electron.launch({executablePath: path.join(dir, 'node_modules/
 const w = await app.firstWindow()
 w.on('pageerror', e => console.log('ERR', e.message))
 await w.waitForLoadState()
-await w.getByLabel('Takma adın').fill('Masaustu')
-await w.getByRole('button', {name: 'Devam'}).click()
-await w.getByRole('button', {name: 'Kur'}).click()
+await w.waitForFunction(() => window.telsiz)
+if (!(await w.evaluate(() => window.telsiz.me.name))) {
+  await w.getByLabel('Takma adın').fill('Masaustu')
+  await w.getByRole('button', {name: 'Devam'}).click()
+}
+if (!(await w.evaluate(() => window.telsiz.groups.length))) await w.getByRole('button', {name: 'Kur'}).click()
 console.log('bridge', await w.evaluate(() => Object.keys(window.telsizDesktop)))
 const src = await w.evaluate(() => window.telsizDesktop.listSources())
 console.log('sources', src.length, src.slice(0, 3).map(s => s.name), src[0]?.thumb.length)
