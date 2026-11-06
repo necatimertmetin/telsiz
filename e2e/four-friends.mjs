@@ -123,6 +123,20 @@ const flow = await a.page.evaluate(async () => {
   return out
 })
 console.log('     akış', flow)
+const sample = () => a.page.evaluate(async () => {
+  let sent = 0, jb = 0, em = 0, rtt = 0
+  for (const pc of Object.values(window.telsiz.session.room.getPeers()))
+    (await pc.getStats()).forEach(x => {
+      if (x.type === 'outbound-rtp' && x.kind === 'audio') sent = x.packetsSent
+      if (x.type === 'inbound-rtp' && x.kind === 'audio') { jb += x.jitterBufferDelay; em += x.jitterBufferEmittedCount }
+      if (x.type === 'candidate-pair' && x.nominated) rtt = x.currentRoundTripTime
+    })
+  return {sent, jb, em, rtt}
+})
+const s1 = await sample(); await new Promise(r => setTimeout(r, 3000)); const s2 = await sample()
+const pps = (s2.sent - s1.sent) / 3
+console.log(`     ses paketi ${pps.toFixed(0)}/sn (~${(1000 / pps).toFixed(0)} ms), jitter tamponu ${((s2.jb - s1.jb) / (s2.em - s1.em) * 1000).toFixed(0)} ms`)
+check(pps > 80, 'ses 10 ms paketle gidiyor')
 check(flow.audioIn > 5000 && flow.audioOut > 1000, 'ses paketleri iki yönde akıyor')
 check(flow.frames > 20, 'video kareleri çözülüyor')
 const vids = await a.page.locator('.tile video').evaluateAll(v => v.map(x => x.videoWidth))

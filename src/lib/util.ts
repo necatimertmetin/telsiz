@@ -63,3 +63,7 @@ export function colorFor(uid: string): string {
 }
 
 export const initials = (name: string) => name.trim().slice(0, 1).toLocaleUpperCase('tr-TR') || '?'
+
+export function lowLatencySdp(sdp: string): string {
+  return sdp.replace(/(a=fmtp:\d+ minptime=10[^\r\n]*\r?\n)(?!a=ptime)/g, '$1a=ptime:10\r\n')
+}

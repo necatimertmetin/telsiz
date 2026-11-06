@@ -99,7 +99,7 @@ class App {
       getGameMode: () => this.prefs.gameMode,
     }, this.turnServers())
     this.sessions.set(g.code, s)
-    this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump))
+    this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode))
   }
 
   get session() { return this.active ? this.sessions.get(this.active) ?? null : null }

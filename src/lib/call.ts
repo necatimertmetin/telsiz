@@ -5,6 +5,7 @@ export type Kind = 'mic' | 'cam' | 'screen'
 export type AudioPrefs = {micId: string; speakerId: string; camId: string; gate: number; noise: boolean}
 
 const BITRATE: Record<Kind, number> = {mic: 48_000, cam: 700_000, screen: 2_500_000}
+const GAME_VIDEO = 200_000 // oyun modunda oyunun pingi öncelikli
 
 // Herkes herkese doğrudan yollar. 4 kişide kimse için 3 akıştan fazla yükleme yoktur,
 // o yüzden kamera bilerek düşük çözünürlükte: oyun oynarken hattı doldurmasın.
@@ -23,10 +24,11 @@ export class Call {
   private ctx?: AudioContext
   private localAn?: AnalyserNode
   private timer?: ReturnType<typeof setInterval>
+  private tuner?: ReturnType<typeof setInterval>
   private openUntil = 0
   private wake?: WakeLockSentinel | null
 
-  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void) {
+  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void, private gameMode: () => boolean) {
     s.room.onPeerStream = (stream: MediaStream, peerId: string, meta?: {kind?: Kind}) => this.gotStream(stream, peerId, meta?.kind ?? 'mic')
     s.onPeerLeft = id => this.dropPeer(id)
     s.onPresence = () => this.sync()
@@ -35,7 +37,7 @@ export class Call {
   private async micStream() {
     const p = this.prefs()
     return navigator.mediaDevices.getUserMedia({
-      audio: {deviceId: p.micId ? {ideal: p.micId} : undefined, echoCancellation: true, noiseSuppression: p.noise, autoGainControl: true, channelCount: 1},
+      audio: {deviceId: p.micId ? {ideal: p.micId} : undefined, echoCancellation: true, noiseSuppression: p.noise, autoGainControl: true, channelCount: 1, latency: {ideal: 0.01}} as MediaTrackConstraints,
     })
   }
 
@@ -46,7 +48,7 @@ export class Call {
     this.send = this.raw.clone()
     this.send.contentHint = 'speech'
     this.streams.mic = new MediaStream([this.send])
-    this.ctx = new AudioContext()
+    this.ctx = new AudioContext({latencyHint: 'interactive'})
     await this.ctx.resume().catch(() => {})
     const an = this.ctx.createAnalyser()
     an.fftSize = 512
@@ -54,6 +56,7 @@ export class Call {
     this.localAn = an
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
+    this.tuner = setInterval(() => void this.tune(), 3000)
     this.s.voice = {in: true, muted: false, deaf: false, cam: false, screen: false}
     this.s.announce()
     void callStarted()
@@ -65,7 +68,7 @@ export class Call {
     if (!this.s.voice.in) return
     for (const k of ['screen', 'cam', 'mic'] as Kind[]) this.stopLocal(k)
     this.raw?.stop()
-    clearInterval(this.timer)
+    clearInterval(this.timer); clearInterval(this.tuner)
     for (const id of [...this.remote.keys()]) this.dropPeer(id)
     void this.ctx?.close()
     this.ctx = undefined
@@ -107,7 +110,7 @@ export class Call {
       if (add.length) {
         this.s.room.addStream(st, {target: add, metadata: {kind: k}})
         add.forEach(id => this.sent[k].add(id))
-        setTimeout(() => this.capBitrate(), 1500)
+        setTimeout(() => void this.tune(), 1500)
       }
       if (gone.length) {
         try { this.s.room.removeStream(st, {target: gone}) } catch { /* peer gitti */ }
@@ -118,16 +121,29 @@ export class Call {
     this.changed()
   }
 
-  private async capBitrate() {
+  // Gecikme ayarları: alıcı tamponu en aza, ses öncelikli. Yeni akışta alıcılar değiştiği için tekrar çalışır.
+  private async tune() {
+    const game = this.gameMode()
     const local = new Map<string, Kind>()
     for (const k of ['mic', 'cam', 'screen'] as Kind[]) this.streams[k]?.getTracks().forEach(t => local.set(t.id, k))
     for (const pc of Object.values(this.s.room.getPeers() as Record<string, RTCPeerConnection>)) {
+      for (const r of pc.getReceivers()) {
+        const x = r as RTCRtpReceiver & {jitterBufferTarget?: number | null; playoutDelayHint?: number}
+        if ('jitterBufferTarget' in x) { if (x.jitterBufferTarget !== 0) x.jitterBufferTarget = 0 }
+        else (r as unknown as {playoutDelayHint: number}).playoutDelayHint = 0
+      }
       for (const sender of pc.getSenders()) {
         const k = sender.track && local.get(sender.track.id)
         if (!k) continue
         const p = sender.getParameters()
-        if (!p.encodings?.length || p.encodings[0].maxBitrate === BITRATE[k]) continue
-        p.encodings[0].maxBitrate = BITRATE[k]
+        const e = p.encodings?.[0]
+        if (!e) continue
+        const rate = game && k !== 'mic' ? GAME_VIDEO : BITRATE[k]
+        const pri = k === 'mic' ? 'high' : 'low'
+        if (e.maxBitrate === rate && e.networkPriority === pri) continue
+        e.maxBitrate = rate
+        e.priority = pri
+        e.networkPriority = pri
         await sender.setParameters(p).catch(() => {})
       }
     }

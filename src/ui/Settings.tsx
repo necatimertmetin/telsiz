@@ -47,7 +47,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <span className="dim small">Bunun altındaki sesler gitmez. Klavye sesi geçiyorsa yükselt.</span>
       </label>
       <label className="check"><input type="checkbox" checked={p.noise} onChange={e => { p.noise = e.target.checked; app.savePrefs(); void live?.changeMic() }} /> Gürültü engelleme</label>
-      <label className="check"><input type="checkbox" checked={p.gameMode} onChange={e => { p.gameMode = e.target.checked; app.savePrefs() }} /> Oyun modu: dosya yüklemesi 1 MB/sn ile sınırlı, otomatik indirme kapalı</label>
+      <label className="check"><input type="checkbox" checked={p.gameMode} onChange={e => { p.gameMode = e.target.checked; app.savePrefs() }} /> Oyun modu: oyunun pingi için kamera ve dosya yüklemesi kısılır, otomatik indirme kapanır</label>
       <label className="check"><input type="checkbox" checked={p.sounds} onChange={e => { p.sounds = e.target.checked; app.savePrefs() }} /> Bildirim sesleri</label>
       {desktop() && <p className="dim small">Oyundayken: Ctrl+Shift+M mikrofon, Ctrl+Shift+D kulaklık.</p>}
 

@@ -1,13 +1,21 @@
 import {joinRoom} from 'trystero'
 import {materialize, missingFor, validEvent} from './history'
 import * as db from './db'
-import {randomId} from './util'
+import {lowLatencySdp, randomId} from './util'
 import type {Ev, FileMeta, Presence, View, VoiceState} from './types'
 
 export const CHUNK = 128 * 1024
 export const AUTO_FETCH = 25 * 1024 * 1024 // küçük dosyalar herkese kendiliğinden iner
 const KEEP_MAX = 300 * 1024 * 1024 // bunun altı cihazda kalır, üstü sadece oturum boyunca
 const GAME_RATE = 1024 * 1024 // oyun modunda yükleme sınırı (bayt/sn)
+
+// Opus varsayılanı 20 ms'lik paket. 10 ms'ye inmek her yönde ~10 ms kazandırır, karşı taraf
+// bunu SDP'den okuduğu için gelen teklif/cevaba eklenir.
+class LowLatencyPC extends RTCPeerConnection {
+  setRemoteDescription(d?: RTCSessionDescriptionInit) {
+    return super.setRemoteDescription(d?.sdp ? {type: d.type, sdp: lowLatencySdp(d.sdp)} : d as RTCSessionDescriptionInit)
+  }
+}
 
 export type Transfer = {status: 'idle' | 'finding' | 'getting' | 'done' | 'missing'; got: number; total: number}
 export type Me = {uid: string; name: string}
@@ -47,7 +55,7 @@ export class Session {
   constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[]) {
     this.view = materialize([], fallbackTitle)
     this.room = joinRoom(
-      {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, ...(turn.length ? {turnConfig: turn} : {})} as never,
+      {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, rtcPolyfill: LowLatencyPC, ...(turn.length ? {turnConfig: turn} : {})} as never,
       code,
       {onJoinError: (d: {error?: string}) => { this.linkError = String(d?.error ?? 'bağlantı kurulamadı'); this.hooks.changed() }} as never,
     )

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {fmtDay, fmtSize, linkify, newRoomCode, parseInvite, previewKind} from '../src/lib/util'
+import {fmtDay, fmtSize, linkify, lowLatencySdp, newRoomCode, parseInvite, previewKind} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -37,5 +37,14 @@ describe('linkify', () => {
   it('only links http(s) and drops trailing punctuation', () => {
     expect(linkify('bak https://a.co/x. tamam')).toEqual([{text: 'bak '}, {text: 'https://a.co/x', url: 'https://a.co/x'}, {text: '. tamam'}])
     expect(linkify('javascript:alert(1)')).toEqual([{text: 'javascript:alert(1)'}])
+  })
+})
+
+describe('lowLatencySdp', () => {
+  it('adds ptime once, right after the opus line', () => {
+    const sdp = 'm=audio 9\r\na=fmtp:111 minptime=10;useinbandfec=1\r\na=rtpmap:9 G722/8000\r\n'
+    const out = lowLatencySdp(sdp)
+    expect(out).toContain('useinbandfec=1\r\na=ptime:10\r\na=rtpmap')
+    expect(lowLatencySdp(out)).toBe(out)
   })
 })
