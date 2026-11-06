@@ -12,7 +12,7 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 
 if (!app.requestSingleInstanceLock()) app.quit()
 
-let win, tray, quitting = false, picked = null
+let win, tray, quitting = false, picked = null, pickedAudio = false
 
 function createWindow() {
   win = new BrowserWindow({
@@ -42,16 +42,17 @@ app.whenReady().then(() => {
   session.defaultSession.setDisplayMediaRequestHandler(async (_req, cb) => {
     const list = await desktopCapturer.getSources({types: ['screen', 'window']})
     const source = list.find(s => s.id === picked) ?? list[0]
+    const audio = pickedAudio
     picked = null
-    // Sistem sesi bilerek yok: arkadaşların kendi seslerini geri duyardı.
-    cb({video: source})
+    pickedAudio = false
+    cb(audio ? {video: source, audio: 'loopback'} : {video: source})
   })
 
   ipcMain.handle('sources', async () => {
     const list = await desktopCapturer.getSources({types: ['screen', 'window'], thumbnailSize: {width: 320, height: 180}})
     return list.map(s => ({id: s.id, name: s.name, thumb: s.thumbnail.toDataURL()}))
   })
-  ipcMain.handle('pick', (_e, id) => { picked = id })
+  ipcMain.handle('pick', (_e, id, audio) => { picked = id; pickedAudio = !!audio })
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
 
   createWindow()

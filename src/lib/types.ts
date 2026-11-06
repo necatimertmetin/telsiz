@@ -3,9 +3,9 @@ export type FileMeta = {id: string; name: string; size: number; type: string}
 type Base = {id: string; ts: number; uid: string; name: string}
 export type Ev = Base & (
   | {t: 'msg'; ch: string; text: string; file?: FileMeta; re?: string}
-  | {t: 'edit'; target: string; text: string}
-  | {t: 'del'; target: string}
-  | {t: 'react'; target: string; emoji: string; on: boolean}
+  | {t: 'edit'; target: string; text: string; ch?: string}
+  | {t: 'del'; target: string; ch?: string}
+  | {t: 'react'; target: string; emoji: string; on: boolean; ch?: string}
   | {t: 'chan'; chId: string; title: string}
   | {t: 'group'; title: string}
 )

@@ -10,7 +10,7 @@ type TelsizPlugin = {
 export type DesktopBridge = {
   onHotkey(cb: (k: 'mute' | 'deaf') => void): void
   listSources(): Promise<{id: string; name: string; thumb: string}[]>
-  pickSource(id: string | null): Promise<void>
+  pickSource(id: string | null, audio: boolean): Promise<void>
   flash(): void
 }
 declare global {

@@ -64,6 +64,9 @@ class App {
       if (k === 'mute') c?.toggleMute(); else c?.toggleDeaf()
     })
     addEventListener('hashchange', () => this.readHash())
+    const seen = () => { this.markRead(); this.bump() }
+    addEventListener('focus', seen)
+    document.addEventListener('visibilitychange', seen)
   }
 
   subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f) } }
@@ -145,16 +148,18 @@ class App {
   go(r: Route) { this.route = r; this.markRead(); this.bump() }
 
   markRead() {
-    if (this.route.kind !== 'text' || !this.active) return
+    if (this.route.kind !== 'text' || !this.active || document.hidden) return
     this.lastRead[`${this.active}:${this.route.ch}`] = Date.now()
     save('read', this.lastRead)
+    const last = this.session?.view.msgs.get(this.route.ch)?.at(-1)
+    if (last) this.session?.sendSeen(this.route.ch, last.ts)
   }
 
   unread(s: Session, ch: string) {
     const last = this.lastRead[`${s.code}:${ch}`] ?? 0
     return (s.view.msgs.get(ch) ?? []).filter(m => m.ts > last && m.uid !== this.me.uid).length
   }
-  unreadGroup(s: Session) { return s.view.channels.reduce((n, c) => n + this.unread(s, c.id), 0) }
+  unreadGroup(s: Session) { return [...s.view.msgs.keys()].reduce((n, ch) => n + this.unread(s, ch), 0) }
 
   async leaveGroup(code: string) {
     this.calls.get(code)?.leave()

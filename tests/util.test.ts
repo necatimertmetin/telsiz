@@ -31,6 +31,8 @@ describe('previewKind', () => {
     expect(previewKind({type: 'text/html', name: 'a.html'})).toBeNull()
     expect(previewKind({type: '', name: 'demo.dem'})).toBeNull()
     expect(previewKind({type: 'image/png', name: 'a.png'})).toBe('image')
+    expect(previewKind({type: '', name: 'komik.gif'})).toBe('image')
+    expect(previewKind({type: '', name: 'not.m4a'})).toBe('audio')
   })
 })
 describe('linkify', () => {

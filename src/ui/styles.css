@@ -64,7 +64,14 @@ a{color:var(--acc)}
 .backtocall{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--ok);color:#0d1a0f;font-weight:600;padding:5px;font-size:14px}
 .right{background:var(--bg2);border-left:1px solid var(--line);display:flex;flex-direction:column;height:100%;min-height:0}
 .member{display:flex;align-items:center;gap:8px;padding:4px 12px;font-size:15px}
+.member{width:100%;text-align:left;border-radius:7px}
+.member:hover:not(:disabled){background:var(--bg3)}
+.member:disabled{opacity:1}
 .member.off{opacity:.5}
+.seen{text-align:right;padding:2px 16px 0;font-size:12.5px;color:var(--dim)}
+.recbar{display:flex;align-items:center;gap:6px;padding:0 4px;color:var(--tx)}
+.recdot{width:10px;height:10px;border-radius:50%;background:var(--bad);animation:rec 1s infinite alternate}
+@keyframes rec{to{opacity:.3}}
 .ping{font:500 11.5px "JetBrains Mono",monospace;color:var(--dim)}
 .onlymobile{display:none}
 

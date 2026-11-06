@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {materialize, missingFor, validEvent} from '../src/lib/history'
+import {dmId, dmPartner, materialize, missingFor, validEvent, visibleTo} from '../src/lib/history'
 import type {Ev} from '../src/lib/types'
 
 const b = (id: string, ts: number, uid = 'a') => ({id, ts, uid, name: uid.toUpperCase()})
@@ -46,5 +46,24 @@ describe('missingFor', () => {
   it('returns only events the other side lacks', () => {
     const mine = new Map([['1', msg('1', 1)], ['2', msg('2', 2)]])
     expect(missingFor(mine, ['1']).map(e => e.id)).toEqual(['2'])
+  })
+})
+
+describe('private chats', () => {
+  const ch = dmId('b', 'a')
+  const dm: Ev = {...b('1', 1), t: 'msg', ch, text: 'gizli'}
+  it('uses the same id from both sides', () => {
+    expect(ch).toBe(dmId('a', 'b'))
+    expect(dmPartner(ch, 'a')).toBe('b')
+  })
+  it('is visible only to the two people', () => {
+    expect(visibleTo(dm, 'a')).toBe(true)
+    expect(visibleTo(dm, 'b')).toBe(true)
+    expect(visibleTo(dm, 'c')).toBe(false)
+    expect(visibleTo({...b('2', 2), t: 'edit', target: '1', text: 'y', ch}, 'c')).toBe(false)
+    expect(visibleTo(msg('3', 3), 'c')).toBe(true)
+  })
+  it('keeps an edit of a private message valid', () => {
+    expect(validEvent({...b('2', 2), t: 'edit', target: '1', text: 'y', ch})).toBe(true)
   })
 })

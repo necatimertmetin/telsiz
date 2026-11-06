@@ -8,6 +8,18 @@ function validFile(f: unknown): f is FileMeta {
   return !!x && str(x.id, 64) && str(x.name, 300) && Number.isSafeInteger(x.size) && x.size >= 0 && typeof x.type === 'string' && x.type.length <= 200
 }
 
+const optCh = (v: unknown) => v === undefined || str(v, 64)
+
+export const dmId = (a: string, b: string) => 'dm:' + [a, b].sort().join(':')
+export const isDm = (ch?: string) => !!ch && ch.startsWith('dm:')
+export const dmPartner = (ch: string, me: string) => ch.split(':').slice(1).find(u => u !== me) ?? me
+
+// Özel sohbet olayları sadece iki tarafa gider; gruptaki diğerleri bu olayları hiç almaz.
+export function visibleTo(e: Ev, uid: string): boolean {
+  const ch = (e as {ch?: string}).ch
+  return !isDm(ch) || ch!.split(':').includes(uid)
+}
+
 // Başka cihazlardan gelen her olay güvenilmez girdidir; uymayan düşer.
 export function validEvent(e: unknown): e is Ev {
   const x = e as Record<string, unknown>
@@ -18,9 +30,9 @@ export function validEvent(e: unknown): e is Ev {
       if (x.file !== undefined && !validFile(x.file)) return false
       if (x.re !== undefined && !str(x.re, 64)) return false
       return x.text.length > 0 || x.file !== undefined
-    case 'edit': return str(x.target, 64) && str(x.text, MAX_TEXT)
-    case 'del': return str(x.target, 64)
-    case 'react': return str(x.target, 64) && str(x.emoji, 16) && typeof x.on === 'boolean'
+    case 'edit': return optCh(x.ch) && str(x.target, 64) && str(x.text, MAX_TEXT)
+    case 'del': return optCh(x.ch) && str(x.target, 64)
+    case 'react': return optCh(x.ch) && str(x.target, 64) && str(x.emoji, 16) && typeof x.on === 'boolean'
     case 'chan': return str(x.chId, 64) && str(x.title, 40)
     case 'group': return str(x.title, 40)
     default: return false

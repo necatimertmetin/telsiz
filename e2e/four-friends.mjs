@@ -93,6 +93,30 @@ if (ok) {
   check(size.size === 40 * 1024 * 1024 && size.intact, `40 MB dosya bozulmadan indi (${((Date.now() - t1) / 1000).toFixed(1)} sn)`)
 }
 
+// GIF, sesli mesaj, özel sohbet, görüldü
+const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
+await a.page.locator('input[type=file]').setInputFiles({name: 'komik.gif', mimeType: 'image/gif', buffer: gif})
+await waitFor(() => d.page.locator('img[alt="komik.gif"]').isVisible(), 8000, 'GIF gösterilmedi') && pass('GIF gruba düştü ve gösterildi')
+await b.page.getByRole('button', {name: 'Ses kaydet'}).click()
+await new Promise(r => setTimeout(r, 1500))
+await b.page.getByRole('button', {name: 'Kaydı gönder'}).click()
+await waitFor(() => a.page.locator('.chat audio').count().then(n => n > 0), 8000, 'sesli mesaj gelmedi') && pass('sesli mesaj geldi ve oynatıcı çıktı')
+const {dmCh, text} = await a.page.evaluate(([n]) => {
+  const s = window.telsiz.session, uid = [...s.peers.values()].find(p => p.name === n).uid
+  const dmCh = 'dm:' + [window.telsiz.me.uid, uid].sort().join(':')
+  s.sendText(dmCh, 'bu sadece sana')
+  return {dmCh, text: 'bu sadece sana'}
+}, ['Ali'])
+const has = (u) => u.page.evaluate(t => [...window.telsiz.session.view.byId.values()].some(m => m.text === t), text)
+await waitFor(() => has(b), 5000, 'özel mesaj karşıya gitmedi') && pass('özel mesaj karşıya gitti')
+await new Promise(r => setTimeout(r, 1500))
+check(!(await has(c)) && !(await has(d)), 'özel mesaj gruptaki diğerlerine gitmedi')
+await a.page.evaluate(ch => window.telsiz.go({kind: 'text', ch}), dmCh)
+await b.page.evaluate(ch => window.telsiz.go({kind: 'text', ch}), dmCh)
+await waitFor(() => a.page.getByText('Görüldü: Ali').isVisible(), 5000, 'görüldü bilgisi gelmedi') && pass('görüldü bilgisi geldi')
+await a.page.evaluate(() => window.telsiz.go({kind: 'text', ch: 'genel'}))
+await b.page.evaluate(() => window.telsiz.go({kind: 'text', ch: 'genel'}))
+
 // Ses ve görüntü
 await a.page.getByRole('button', {name: 'Telsiz odası'}).click()
 await a.page.getByRole('button', {name: 'Sesli katıl'}).last().click()

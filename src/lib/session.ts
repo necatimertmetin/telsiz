@@ -1,5 +1,5 @@
 import {joinRoom} from 'trystero'
-import {materialize, missingFor, validEvent} from './history'
+import {dmPartner, isDm, materialize, missingFor, validEvent, visibleTo} from './history'
 import * as db from './db'
 import {lowLatencySdp, randomId} from './util'
 import type {Ev, FileMeta, Presence, View, VoiceState} from './types'
@@ -35,6 +35,8 @@ export class Session {
   readonly typing = new Map<string, {name: string; ch: string; until: number}>()
   readonly transfers = new Map<string, Transfer>()
   readonly uploads = new Map<string, number>()
+  readonly seen = new Map<string, Map<string, number>>() // kanal -> kişi -> son görülen mesaj zamanı
+  private mySeen = new Map<string, number>()
   readonly stats = new Map<string, {rtt?: number; relayed?: boolean}>()
   view: View
   linkError = ''
@@ -44,7 +46,7 @@ export class Session {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
@@ -62,12 +64,18 @@ export class Session {
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'),
     }
     this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.gotHello(p, peerId)
-    this.a.ids.onMessage = (ids: string[], {peerId}: {peerId: string}) => {
-      if (!Array.isArray(ids)) return
-      this.pushEvents(missingFor(this.events, ids), peerId)
+    this.a.ids.onMessage = (d: {uid?: string; ids?: string[]}, {peerId}: {peerId: string}) => {
+      if (!d || !Array.isArray(d.ids) || typeof d.uid !== 'string') return
+      this.pushEvents(missingFor(this.events, d.ids).filter(e => visibleTo(e, d.uid!)), peerId)
+    }
+    this.a.seen.onMessage = (d: {uid: string; ch: string; ts: number}) => {
+      if (!d || typeof d.uid !== 'string' || typeof d.ch !== 'string' || !Number.isFinite(d.ts)) return
+      if (isDm(d.ch) && !d.ch.split(':').includes(this.me.uid)) return
+      const m = this.seen.get(d.ch) ?? new Map<string, number>()
+      if ((m.get(d.uid) ?? 0) < d.ts) { m.set(d.uid, d.ts); this.seen.set(d.ch, m); this.hooks.changed() }
     }
     this.a.ev.onMessage = (evs: unknown[], {peerId}: {peerId: string}) => this.gotEvents(evs, peerId)
     this.a.typing.onMessage = (ch: string, {peerId}: {peerId: string}) => {
@@ -85,7 +93,8 @@ export class Session {
     r.onPeerJoin = (peerId: string) => {
       this.linkError = ''
       this.a.hello.send(this.presence(), {target: peerId})
-      this.a.ids.send([...this.events.keys()], {target: peerId})
+      this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
+      for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
       this.retryWanted()
       this.hooks.changed()
     }
@@ -103,7 +112,7 @@ export class Session {
     const old = await db.loadEvents(this.code).catch(() => [])
     for (const e of old) this.events.set(e.id, e)
     this.rebuild()
-    if (old.length) this.a.ids.send([...this.events.keys()])
+    if (old.length) this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]})
   }
 
   private rebuild() { this.view = materialize(this.events.values(), this.fallbackTitle); this.hooks.changed() }
@@ -125,7 +134,7 @@ export class Session {
 
   private gotEvents(evs: unknown[], from: string) {
     if (!Array.isArray(evs)) return
-    const fresh = evs.filter((e): e is Ev => validEvent(e) && !this.events.has(e.id))
+    const fresh = evs.filter((e): e is Ev => validEvent(e) && !this.events.has(e.id) && visibleTo(e, this.me.uid))
     if (!fresh.length) return
     for (const e of fresh) this.events.set(e.id, e)
     void db.saveEvents(this.code, fresh)
@@ -136,20 +145,45 @@ export class Session {
     }
     // İki kişi birbirine doğrudan bağlanamasa da ortak arkadaş üzerinden yazışma ulaşır.
     const others = Object.keys(this.room.getPeers()).filter(p => p !== from)
-    if (others.length) this.a.ev.send(fresh, {target: others})
+    const open = fresh.filter(e => !isDm((e as {ch?: string}).ch))
+    if (others.length && open.length) this.a.ev.send(open, {target: others})
   }
 
   emit(e: Omit<Ev, 'id' | 'ts' | 'uid' | 'name'>) {
-    const ev = {...e, id: randomId(), ts: Date.now(), uid: this.me.uid, name: this.me.name} as Ev
+    const x = e as {ch?: string; target?: string}
+    const parent = x.target ? this.view.byId.get(x.target) : undefined
+    const ch = x.ch ?? (parent && isDm(parent.ch) ? parent.ch : undefined)
+    const ev = {...e, ...(ch ? {ch} : {}), id: randomId(), ts: Date.now(), uid: this.me.uid, name: this.me.name} as Ev
     this.events.set(ev.id, ev)
     void db.saveEvents(this.code, [ev])
-    this.a.ev.send([ev])
+    if (isDm(ch)) {
+      const target = this.peerIdsOf(dmPartner(ch!, this.me.uid))
+      if (target.length) this.a.ev.send([ev], {target})
+    } else this.a.ev.send([ev])
     this.rebuild()
     return ev
   }
 
+  private peerIdsOf(uid: string) {
+    return [...this.peers].filter(([, p]) => p.uid === uid).map(([id]) => id)
+  }
+
+  sendSeen(ch: string, ts: number) {
+    if ((this.mySeen.get(ch) ?? 0) >= ts) return
+    this.mySeen.set(ch, ts)
+    const msg = {uid: this.me.uid, ch, ts}
+    if (isDm(ch)) {
+      const target = this.peerIdsOf(dmPartner(ch, this.me.uid))
+      if (target.length) this.a.seen.send(msg, {target})
+    } else this.a.seen.send(msg)
+  }
+
   sendText(ch: string, text: string, re?: string) { this.emit({t: 'msg', ch, text, ...(re ? {re} : {})} as never) }
-  sendTyping(ch: string) { this.a.typing.send(ch) }
+  sendTyping(ch: string) {
+    if (!isDm(ch)) return void this.a.typing.send(ch)
+    const target = this.peerIdsOf(dmPartner(ch, this.me.uid))
+    if (target.length) this.a.typing.send(ch, {target})
+  }
   ring() { this.a.ring.send(1) }
 
   sendFile(ch: string, file: File, text = '') {

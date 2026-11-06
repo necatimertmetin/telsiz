@@ -275,7 +275,7 @@ export class Call {
 
   changeCam() { return this.swapCam() }
 
-  async toggleScreen() {
+  async toggleScreen(withAudio = true) {
     if (!this.s.voice.in) return
     if (this.streams.screen) {
       this.stopLocal('screen')
@@ -283,7 +283,13 @@ export class Call {
       this.s.announce()
       return
     }
-    const st = await navigator.mediaDevices.getDisplayMedia({video: {frameRate: {ideal: 30}}, audio: true})
+    // restrictOwnAudio: bu sekmedeki görüşme sesi yayına girmesin, arkadaşların kendini duymasın.
+    const st = await navigator.mediaDevices.getDisplayMedia({
+      video: {frameRate: {ideal: 30}},
+      audio: withAudio ? {echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true} as MediaTrackConstraints : false,
+      systemAudio: 'include',
+    } as DisplayMediaStreamOptions)
+    st.getAudioTracks().forEach(t => { t.contentHint = 'music' })
     st.getVideoTracks()[0].contentHint = 'detail'
     st.getVideoTracks()[0].onended = () => { if (this.streams.screen === st) void this.toggleScreen() }
     this.streams.screen = st

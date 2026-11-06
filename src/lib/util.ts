@@ -32,9 +32,11 @@ export function fmtDay(ts: number, now = Date.now()): string {
   return new Date(ts).toLocaleDateString('tr-TR', {day: 'numeric', month: 'long', year: 'numeric'})
 }
 
+const EXT: Record<string, string> = {gif: 'image/gif', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', mp4: 'video/mp4', webm: 'video/webm', mp3: 'audio/mpeg', ogg: 'audio/ogg', wav: 'audio/wav', m4a: 'audio/mp4'}
+
 // SVG ve HTML bilerek yok: gelen dosya tarayıcıda çalıştırılmaz, sadece indirilir.
 export function previewKind(f: {type: string; name: string}): 'image' | 'video' | 'audio' | null {
-  const t = f.type.toLowerCase()
+  const t = (f.type || EXT[f.name.split('.').pop()?.toLowerCase() ?? ''] || '').toLowerCase()
   if (/^image\/(png|jpe?g|gif|webp|avif|bmp)$/.test(t)) return 'image'
   if (/^video\/(mp4|webm|ogg|quicktime)$/.test(t)) return 'video'
   if (/^audio\//.test(t)) return 'audio'
@@ -67,3 +69,5 @@ export const initials = (name: string) => name.trim().slice(0, 1).toLocaleUpperC
 export function lowLatencySdp(sdp: string): string {
   return sdp.replace(/(a=fmtp:\d+ minptime=10[^\r\n]*\r?\n)(?!a=ptime)/g, '$1a=ptime:10\r\n')
 }
+
+export const isImageUrl = (url: string) => /^https:\/\/[^\s]+\.(gif|png|jpe?g|webp)(\?[^\s]*)?$/i.test(url)

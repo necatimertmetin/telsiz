@@ -1,10 +1,10 @@
 import {Fragment, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent} from 'react'
 import {app} from '../lib/app'
-import {MAX_TEXT} from '../lib/history'
+import {dmPartner, isDm, MAX_TEXT} from '../lib/history'
 import {saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
 import type {FileMeta, Msg} from '../lib/types'
-import {colorFor, fmtDay, fmtSize, fmtTime, linkify, previewKind} from '../lib/util'
+import {colorFor, fmtDay, fmtSize, fmtTime, isImageUrl, linkify, previewKind} from '../lib/util'
 import {Avatar} from './App'
 import {Icon} from './Icon'
 
@@ -59,6 +59,59 @@ function Text({text}: {text: string}) {
   return <>{linkify(text).map((t, i) => t.url ? <a key={i} href={t.url} target="_blank" rel="noreferrer noopener">{t.text}</a> : <Fragment key={i}>{t.text}</Fragment>)}</>
 }
 
+// Link doğrudan bir resim ya da GIF ise mesajın içinde gösterilir.
+function LinkedImages({text}: {text: string}) {
+  const urls = linkify(text).flatMap(t => t.url && isImageUrl(t.url) ? [t.url] : [])
+  return <>{urls.slice(0, 3).map(u => <a key={u} className="thumb" href={u} target="_blank" rel="noreferrer noopener"><img src={u} alt="" loading="lazy" referrerPolicy="no-referrer" onError={e => { e.currentTarget.parentElement!.style.display = 'none' }} /></a>)}</>
+}
+
+function Recorder({onDone}: {onDone: (f: File) => void}) {
+  const [secs, setSecs] = useState<number | null>(null)
+  const rec = useRef<MediaRecorder | null>(null)
+  const send = useRef(false)
+  const timer = useRef<ReturnType<typeof setInterval>>(undefined)
+
+  const start = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true}})
+      const type = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/ogg;codecs=opus'].find(t => MediaRecorder.isTypeSupported(t))
+      const r = new MediaRecorder(stream, type ? {mimeType: type} : undefined)
+      const parts: Blob[] = []
+      r.ondataavailable = e => { if (e.data.size) parts.push(e.data) }
+      r.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        clearInterval(timer.current)
+        setSecs(null)
+        if (!send.current || !parts.length) return
+        const mime = r.mimeType.split(';')[0]
+        const stamp = new Date().toLocaleTimeString('tr-TR', {hour: '2-digit', minute: '2-digit'}).replace(':', '.')
+        onDone(new File(parts, `ses-kaydi-${stamp}.${mime.includes('mp4') ? 'm4a' : mime.split('/')[1]}`, {type: mime}))
+      }
+      r.start()
+      rec.current = r
+      send.current = false
+      setSecs(0)
+      const t0 = Date.now()
+      timer.current = setInterval(() => {
+        const n = Math.floor((Date.now() - t0) / 1000)
+        setSecs(n)
+        if (n >= 300) stop(true)
+      }, 500)
+    } catch { app.showToast('Mikrofon açılamadı') }
+  }
+  const stop = (ok: boolean) => { send.current = ok; rec.current?.stop() }
+  useEffect(() => () => { send.current = false; if (rec.current?.state === 'recording') rec.current.stop() }, [])
+
+  if (secs === null) return <button className="ico" aria-label="Ses kaydet" title="Ses kaydet" onClick={() => void start()}><Icon n="mic" /></button>
+  return (
+    <div className="recbar" role="status">
+      <span className="recdot" /> <b>{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}</b>
+      <button className="ico" aria-label="Kaydı iptal et" onClick={() => stop(false)}><Icon n="x" /></button>
+      <button className="ico send" aria-label="Kaydı gönder" onClick={() => stop(true)}><Icon n="send" /></button>
+    </div>
+  )
+}
+
 function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply: () => void}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.text)
@@ -89,6 +142,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
           <textarea autoFocus value={draft} maxLength={MAX_TEXT} rows={2} onChange={e => setDraft(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit() } if (e.key === 'Escape') setEditing(false) }} aria-label="Mesajı düzenle" />
         ) : m.text && <div className="txt"><Text text={m.text} />{m.edited && <span className="dim small"> (düzenlendi)</span>}</div>}
+        {m.text && <LinkedImages text={m.text} />}
         {m.file && <FileCard s={s} f={m.file} own={own} />}
         {Object.keys(m.reacts).length > 0 && (
           <div className="reacts">
@@ -119,7 +173,13 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
   const fileInput = useRef<HTMLInputElement>(null)
   const area = useRef<HTMLTextAreaElement>(null)
   const lastTyping = useRef(0)
-  const chTitle = s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
+  const dm = isDm(ch)
+  const partner = dm ? dmPartner(ch, app.me.uid) : ''
+  const chTitle = dm ? (s.view.people.get(partner) ?? [...s.peers.values()].find(p => p.uid === partner)?.name ?? 'Özel sohbet') : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
+  const lastOwn = msgs.findLastIndex(m => m.uid === app.me.uid)
+  const seenBy = lastOwn < 0 ? [] : [...(s.seen.get(ch) ?? [])]
+    .filter(([u, ts]) => u !== app.me.uid && ts >= msgs[lastOwn].ts)
+    .map(([u]) => s.view.people.get(u) ?? [...s.peers.values()].find(p => p.uid === u)?.name ?? 'Biri')
 
   useLayoutEffect(() => { if (stick.current && box.current) box.current.scrollTop = box.current.scrollHeight })
   useEffect(() => { app.markRead() }, [msgs.length])
@@ -141,13 +201,19 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
     if (e.key === 'Escape') setReply(null)
   }
   const onPaste = (e: ClipboardEvent) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files) } }
-  const onDrop = (e: DragEvent) => { e.preventDefault(); setDrag(false); addFiles(e.dataTransfer.files) }
+  const onDrop = (e: DragEvent) => {
+    e.preventDefault(); setDrag(false)
+    if (e.dataTransfer.files.length) return addFiles(e.dataTransfer.files)
+    // Tarayıcıdan sürüklenen GIF dosya olarak değil adres olarak gelir.
+    const url = e.dataTransfer.getData('text/uri-list').split('\n')[0].trim()
+    if (url.startsWith('https://')) { s.sendText(ch, url); stick.current = true }
+  }
   const typers = [...s.typing.values()].filter(t => t.ch === ch).map(t => t.name)
 
   return (
     <div className="chat" onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={e => { if (e.currentTarget === e.target) setDrag(false) }} onDrop={onDrop}>
       <div className="log" ref={box} onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
-        {msgs.length === 0 && <div className="empty"><h3># {chTitle}</h3><p className="dim">Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.</p></div>}
+        {msgs.length === 0 && <div className="empty"><h3>{dm ? '@' : '#'} {chTitle}</h3><p className="dim">{dm ? 'Bu sohbet sadece ikinizin cihazında durur, gruptaki diğerlerine gitmez.' : 'Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.'}</p></div>}
         {msgs.map((m, i) => {
           const p = msgs[i - 1]
           const newDay = !p || new Date(p.ts).toDateString() !== new Date(m.ts).toDateString()
@@ -156,6 +222,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
             <Fragment key={m.id}>
               {newDay && <div className="day"><span>{fmtDay(m.ts)}</span></div>}
               <Row s={s} m={m} head={head} onReply={() => { setReply(m); area.current?.focus() }} />
+              {i === lastOwn && seenBy.length > 0 && <div className="seen">Görüldü: {seenBy.join(', ')}</div>}
             </Fragment>
           )
         })}
@@ -165,13 +232,13 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
       <div className="composer">
         <input ref={fileInput} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         <button className="ico" aria-label="Dosya ekle" title="Dosya ekle" onClick={() => fileInput.current?.click()}><Icon n="clip" /></button>
-        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={`#${chTitle} kanalına yaz`} aria-label="Mesaj"
+        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} kişisine yaz` : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
           onChange={e => {
             setText(e.target.value)
             if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); s.sendTyping(ch) }
           }}
           onKeyDown={onKey} onPaste={onPaste} />
-        <button className="ico send" aria-label="Gönder" disabled={!text.trim()} onClick={send}><Icon n="send" /></button>
+        {text.trim() ? <button className="ico send" aria-label="Gönder" onClick={send}><Icon n="send" /></button> : <Recorder onDone={f => addFiles([f])} />}
       </div>
       {drag && <div className="dropzone">Dosyayı bırak, gruba gönderelim</div>}
     </div>

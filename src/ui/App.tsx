@@ -1,6 +1,7 @@
 import {useEffect, useState, type FormEvent} from 'react'
 import {app, useApp} from '../lib/app'
 import type {Session} from '../lib/session'
+import {dmId, dmPartner, isDm} from '../lib/history'
 import {desktop} from '../lib/native'
 import {colorFor, initials, parseInvite} from '../lib/util'
 import {Chat} from './Chat'
@@ -109,6 +110,7 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const call = app.call!
+  const dms = [...s.view.msgs.keys()].filter(isDm)
   const inVoice = [{id: 'me', uid: app.me.uid, name: app.me.name, on: s.voice.in, v: s.voice}, ...[...s.peers].map(([id, p]) => ({id, uid: p.uid, name: p.name, on: p.voice.in, v: p.voice}))].filter(x => x.on)
   const live = app.liveSession()
   const liveCall = app.liveCall()
@@ -138,6 +140,17 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
             </button>
           )
         })}
+        {dms.length > 0 && <div className="sect">Özel sohbetler</div>}
+        {dms.map(ch => {
+          const uid = dmPartner(ch, app.me.uid)
+          const name = s.view.people.get(uid) ?? 'Biri'
+          const n = app.unread(s, ch)
+          return (
+            <button key={ch} className={'chan' + (app.route.kind === 'text' && app.route.ch === ch ? ' on' : '')} onClick={() => { app.go({kind: 'text', ch}); onNavigate() }}>
+              <Avatar uid={uid} name={name} s={20} /><span className="ell">{name}</span>{n > 0 && <span className="badge in">{n}</span>}
+            </button>
+          )
+        })}
         <div className="sect">Ses</div>
         <button className={'chan' + (app.route.kind === 'voice' ? ' on' : '')} onClick={() => { app.go({kind: 'voice'}); onNavigate() }}>
           <Icon n="wave" s={17} /><span className="ell">Telsiz odası</span>{inVoice.length > 0 && <span className="count">{inVoice.length}</span>}
@@ -149,7 +162,7 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
             {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}
           </div>
         ))}
-        <div className="onlymobile"><Members s={s} /></div>
+        <div className="onlymobile"><Members s={s} onOpen={onNavigate} /></div>
       </div>
       {live && liveCall && (
         <div className="livebar">
@@ -168,7 +181,12 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
   )
 }
 
-function Members({s}: {s: Session}) {
+function openDm(uid: string, onOpen?: () => void) {
+  app.go({kind: 'text', ch: dmId(app.me.uid, uid)})
+  onOpen?.()
+}
+
+function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
   const {online, offline} = people(s)
   return (
     <>
@@ -177,32 +195,35 @@ function Members({s}: {s: Session}) {
         const st = u.peerId ? s.stats.get(u.peerId) : undefined
         const p = u.peerId ? s.peers.get(u.peerId) : undefined
         return (
-          <div className="member" key={u.key}>
+          <button className="member" key={u.key} disabled={u.key === 'me'} title={u.key === 'me' ? '' : 'Özel mesaj'} onClick={() => openDm(u.uid, onOpen)}>
             <Avatar uid={u.uid} name={u.name} s={30} />
             <span className="ell grow">{u.name}{u.key === 'me' ? ' (sen)' : ''}</span>
             {p?.voice.in && <Icon n="wave" s={14} />}
             {st?.rtt !== undefined && <span className="ping" title={st.relayed ? 'Aktarma sunucusu üzerinden' : 'Doğrudan bağlı'}>{Math.round(st.rtt)} ms</span>}
-          </div>
+          </button>
         )
       })}
       {offline.length > 0 && <div className="sect">Çevrimdışı</div>}
-      {offline.map(u => <div className="member off" key={u.uid}><Avatar uid={u.uid} name={u.name} s={30} /><span className="ell">{u.name}</span></div>)}
+      {offline.map(u => <button className="member off" key={u.uid} title="Özel mesaj" onClick={() => openDm(u.uid, onOpen)}><Avatar uid={u.uid} name={u.name} s={30} /><span className="ell">{u.name}</span></button>)}
     </>
   )
 }
 
 function SourcePicker() {
   const list = app.sourcePicker
+  const [audio, setAudio] = useState(false)
   if (!list) return null
   const close = () => { app.sourcePicker = null; app.bump() }
   return (
     <Modal title="Ne paylaşılsın?" onClose={close}>
+      <label className="check"><input type="checkbox" checked={audio} onChange={e => setAudio(e.target.checked)} /> Bilgisayarın sesini de paylaş</label>
+      {audio && <p className="dim small">Windows tüm sesi yakalar. Arkadaşların kendi sesini yankı olarak duyarsa kapat.</p>}
       <div className="sources">
         {list.map(x => (
           <button key={x.id} onClick={async () => {
             close()
-            await desktop()!.pickSource(x.id)
-            await app.liveCall()?.toggleScreen().catch(() => app.showToast('Ekran paylaşılamadı'))
+            await desktop()!.pickSource(x.id, audio)
+            await app.liveCall()?.toggleScreen(audio).catch(() => app.showToast('Ekran paylaşılamadı'))
           }}><img src={x.thumb} alt="" /><span className="ell">{x.name}</span></button>
         ))}
       </div>
@@ -232,7 +253,10 @@ export function App() {
   const s = app.session!
   const live = app.liveSession()
   const ring = app.ring
-  const title = app.route.kind === 'voice' ? 'Telsiz odası' : '# ' + (s.view.channels.find(c => app.route.kind === 'text' && c.id === app.route.ch)?.title ?? 'genel')
+  const route = app.route
+  const title = route.kind === 'voice' ? 'Telsiz odası'
+    : isDm(route.ch) ? '@ ' + (s.view.people.get(dmPartner(route.ch, app.me.uid)) ?? [...s.peers.values()].find(p => p.uid === dmPartner(route.ch, app.me.uid))?.name ?? 'Özel sohbet')
+    : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
   const alone = s.peers.size === 0
 
   return (

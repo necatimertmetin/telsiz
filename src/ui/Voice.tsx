@@ -140,7 +140,10 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
       app.bump()
       return
     }
+    const was = !!call.streams.screen
     await call.toggleScreen().catch(() => {})
+    if (!was && call.streams.screen && !call.streams.screen.getAudioTracks().length)
+      app.showToast('Ses gitmiyor: seçimde ses paylaşımını aç')
   }
 
   return (
