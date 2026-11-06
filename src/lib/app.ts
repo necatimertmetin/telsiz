@@ -25,6 +25,9 @@ function save(k: string, v: unknown) {
   try { localStorage.setItem('telsiz.' + k, JSON.stringify(v)) } catch { /* gizli pencere */ }
 }
 
+// Masaüstü uygulamasında arka plan kısıtı kapalı olduğu için document.hidden hep false kalır, odak da bakılmalı.
+const away = () => document.hidden || !document.hasFocus()
+
 // Kısa, sentezlenmiş sesler: ses dosyası taşımaya gerek yok.
 function beep(notes: [number, number][], vol = 0.05) {
   try {
@@ -298,7 +301,7 @@ class App {
   go(r: Route) { this.route = r; this.search = ''; this.markRead(); this.bump() }
 
   markRead() {
-    if (this.route.kind !== 'text' || !this.active || document.hidden) return
+    if (this.route.kind !== 'text' || !this.active || away()) return
     this.lastRead[`${this.active}:${this.route.ch}`] = Date.now()
     save('read', this.lastRead)
     const last = this.session?.view.msgs.get(this.route.ch)?.at(-1)
@@ -406,7 +409,7 @@ class App {
 
   private onMessage(s: Session, e: Ev & {t: 'msg'}) {
     const fresh = Date.now() - e.ts < 30_000
-    const viewing = s.code === this.active && this.route.kind === 'text' && this.route.ch === e.ch && !document.hidden
+    const viewing = s.code === this.active && this.route.kind === 'text' && this.route.ch === e.ch && !away()
     if (viewing) { this.markRead(); return }
     if (!fresh) return
     if (this.prefs.sounds) beep([[880, .08], [1175, .1]], .03)
@@ -424,7 +427,7 @@ class App {
   }
 
   private notify(title: string, body: string) {
-    if (!document.hidden || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    if (!away() || typeof Notification === 'undefined' || Notification.permission !== 'granted') return
     try { new Notification(title, {body, icon: 'icon-192.png'}) } catch { /* mobil kısıtı */ }
   }
 
