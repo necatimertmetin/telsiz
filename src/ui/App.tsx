@@ -44,6 +44,11 @@ function GroupForm({onDone}: {onDone?: () => void}) {
           <button className="btn pri">Kur</button>
         </div>
       </form>
+      <div className="explain dim small">
+        <span><b>Kim görebilir?</b> Sadece davet kodunu bilenler. Gruplar hiçbir yerde listelenmez, aranarak bulunamaz.</span>
+        <span>Kurunca sana rastgele bir kod verilir. Linki kimle paylaşırsan o girer, kod onun için grubun anahtarıdır.</span>
+        <span>Mesajlar ve dosyalar sunucuya gitmez, doğrudan cihazlar arasında şifreli gider ve sadece grubun cihazlarında durur.</span>
+      </div>
       <div className="or"><span>ya da</span></div>
       <form onSubmit={e => { e.preventDefault(); if (parsed) { app.join(parsed); onDone?.() } }}>
         <label className="lbl">Davet ile katıl</label>
@@ -63,7 +68,7 @@ function Invite({s, onClose}: {s: Session; onClose: () => void}) {
   }
   return (
     <Modal title="Arkadaşlarını davet et" onClose={onClose}>
-      <p className="dim">Bu linke tıklayan kurulum yapmadan gruba girer. Uygulamada açanlar kodu yapıştırır. Kodu bilen herkes grubu görür, sadece arkadaşlarınla paylaş.</p>
+      <p className="dim">Bu linke tıklayan kurulum yapmadan gruba girer, uygulamada açanlar kodu yapıştırır. Grubu görebilmenin tek yolu bu kod: bilen herkes girer ve eski mesajları görür. Kodu değiştirmek mümkün değil, bu yüzden sadece arkadaşlarınla paylaş. Sızarsa yeni grup kurun.</p>
       <code className="code">{s.code}</code>
       <div className="row">
         <button className="btn pri" onClick={copy}><Icon n="link" s={18} /> Linki kopyala</button>
