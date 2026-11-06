@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {decodeBackup, encodeBackup, fmtDay, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, parseInvite, previewKind} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -50,6 +50,13 @@ describe('lowLatencySdp', () => {
     expect(lowLatencySdp(out)).toBe(out)
   })
 })
+describe('orderCodecs', () => {
+  it('seçileni öne alır, diğerlerini korur', () => {
+    const c = [{mimeType: 'video/VP8'}, {mimeType: 'video/rtx'}, {mimeType: 'video/H264'}, {mimeType: 'video/H264'}]
+    expect(orderCodecs(c, 'video/h264').map(x => x.mimeType)).toEqual(['video/H264', 'video/H264', 'video/VP8', 'video/rtx'])
+  })
+})
+
 describe('isNewer', () => {
   it('compares versions numerically', () => {
     expect(isNewer('v1.10.0', '1.9.0')).toBe(true)

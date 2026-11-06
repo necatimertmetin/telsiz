@@ -67,6 +67,12 @@ export function colorFor(uid: string): string {
 
 export const initials = (name: string) => name.trim().slice(0, 1).toLocaleUpperCase('tr-TR') || '?'
 
+// Seçilen kodek öne alınır, diğerleri karşı taraf desteklemezse diye listede kalır.
+export function orderCodecs<T extends {mimeType: string}>(codecs: T[], first: string): T[] {
+  const is = (c: T) => c.mimeType.toLowerCase() === first.toLowerCase()
+  return [...codecs.filter(is), ...codecs.filter(c => !is(c))]
+}
+
 export function lowLatencySdp(sdp: string): string {
   return sdp.replace(/(a=fmtp:\d+ minptime=10[^\r\n]*\r?\n)(?!a=ptime)/g, '$1a=ptime:10\r\n')
 }

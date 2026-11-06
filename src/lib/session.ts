@@ -3,7 +3,8 @@ import {canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPu
 import {openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
-import {lowLatencySdp, randomId} from './util'
+import {lowLatencySdp, orderCodecs, randomId} from './util'
+import {screenCodec} from './native'
 import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
 
 export const CHUNK = 128 * 1024
@@ -14,6 +15,19 @@ const GAME_RATE = 1024 * 1024 // oyun modunda yükleme sınırı (bayt/sn)
 // Opus varsayılanı 20 ms'lik paket. 10 ms'ye inmek her yönde ~10 ms kazandırır, karşı taraf
 // bunu SDP'den okuduğu için gelen teklif/cevaba eklenir.
 class LowLatencyPC extends RTCPeerConnection {
+  // Sadece ekran izinde 'detail' ipucu var, kamera ve ses olduğu gibi kalır.
+  addTrack(t: MediaStreamTrack, ...s: MediaStream[]) {
+    const sender = super.addTrack(t, ...s)
+    if (t.kind === 'video' && t.contentHint === 'detail') {
+      try {
+        const x = this.getTransceivers().find(y => y.sender === sender)
+        const c = RTCRtpSender.getCapabilities('video')?.codecs
+        if (x && c) x.setCodecPreferences(orderCodecs(c, screenCodec))
+      } catch { /* tarayıcı kendi seçsin */ }
+    }
+    return sender
+  }
+
   setRemoteDescription(d?: RTCSessionDescriptionInit) {
     return super.setRemoteDescription(d?.sdp ? {type: d.type, sdp: lowLatencySdp(d.sdp)} : d as RTCSessionDescriptionInit)
   }

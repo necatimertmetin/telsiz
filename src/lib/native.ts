@@ -38,6 +38,16 @@ export async function shellVersion(): Promise<string | null> {
   if (p?.appVersion) return (await p.appVersion()).version
   return await desktop()?.appVersion?.() ?? navigator.userAgent.match(/telsiz(?:-desktop)?\/(\d+\.\d+\.\d+)/i)?.[1] ?? null
 }
+// Ölçüm: 6 Mb/sn'de VP8 1080p'yi tutamıyor. Donanımlı H264 üç izleyicide de 1080p verip işlemciyi yormuyor,
+// donanım yoksa yazılımda en iyi sonucu VP9 verdi.
+export let screenCodec = 'video/VP9'
+export async function pickScreenCodec() {
+  try {
+    // mediaCapabilities'in powerEfficient değeri donanım varken de false dönüyor, bu yüzden doğrudan sorulur.
+    const r = await VideoEncoder.isConfigSupported({codec: 'avc1.42E033', width: 1920, height: 1080, bitrate: 6_000_000, framerate: 60, hardwareAcceleration: 'prefer-hardware'})
+    screenCodec = r.supported ? 'video/H264' : 'video/VP9'
+  } catch { /* eski tarayıcı, varsayılan kalır */ }
+}
 export const isAndroidApp = () => window.Capacitor?.getPlatform?.() === 'android'
 export const canShareScreen = () => !isAndroidApp() && !!navigator.mediaDevices?.getDisplayMedia
 

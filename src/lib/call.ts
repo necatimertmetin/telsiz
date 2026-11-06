@@ -1,6 +1,6 @@
 import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
-import {callStarted, callStopped, reapplySpeaker} from './native'
+import {callStarted, callStopped, pickScreenCodec, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
 export type ScreenQ = '720p30' | '1080p30' | '1080p60' | '1440p60'
@@ -417,6 +417,7 @@ export class Call {
       return
     }
     const q = SCREEN_Q[this.prefs().screenQ]
+    await pickScreenCodec()
     // restrictOwnAudio: bu sekmedeki görüşme sesi yayına girmesin, arkadaşların kendini duymasın.
     const st = await navigator.mediaDevices.getDisplayMedia({
       video: {frameRate: {ideal: q.f, max: q.f}, width: {ideal: q.w, max: q.w}, height: {ideal: q.h, max: q.h}},
@@ -424,8 +425,8 @@ export class Call {
       systemAudio: 'include',
     } as DisplayMediaStreamOptions)
     this.boostScreen(st)
-    // 60 fps'te akıcılık, 30 fps'te yazı netliği öncelikli.
-    st.getVideoTracks()[0].contentHint = q.f >= 60 ? 'motion' : 'detail'
+    // 'motion' sıkışınca çözünürlüğü 270p'ye kadar düşürüyor. Bant yetmezse fps düşsün, görüntü net kalsın.
+    st.getVideoTracks()[0].contentHint = 'detail'
     st.getVideoTracks()[0].onended = () => { if (this.streams.screen === st) void this.toggleScreen() }
     this.streams.screen = st
     this.s.voice.screen = true
@@ -457,7 +458,7 @@ export class Call {
     const t = this.streams.screen?.getVideoTracks()[0]
     if (!t) return
     const q = SCREEN_Q[this.prefs().screenQ]
-    t.contentHint = q.f >= 60 ? 'motion' : 'detail'
+    t.contentHint = 'detail'
     await t.applyConstraints({frameRate: {ideal: q.f, max: q.f}, width: {ideal: q.w, max: q.w}, height: {ideal: q.h, max: q.h}})
     await this.tune()
   }
