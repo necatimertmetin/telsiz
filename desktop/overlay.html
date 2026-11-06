@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="tr">
+<meta charset="utf-8">
+<title>Telsiz konuşanlar</title>
+<style>
+  html,body{margin:0;background:transparent;overflow:hidden;font:600 14px system-ui,sans-serif;color:#fff;user-select:none}
+  #list{display:flex;flex-direction:column;gap:3px;padding:4px}
+  .u{display:flex;align-items:center;gap:6px;width:max-content;max-width:210px;padding:3px 8px;border-radius:7px;background:rgba(14,16,20,.62);opacity:.72}
+  .u.talk{background:rgba(245,165,36,.92);color:#201400;opacity:1}
+  .u span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .u i{font-style:normal;font-size:12px;opacity:.8}
+</style>
+<div id="list"></div>
+<script>
+  const list = document.getElementById('list')
+  window.telsizOverlay.onData(people => {
+    list.replaceChildren(...people.map(p => {
+      const row = document.createElement('div')
+      row.className = 'u' + (p.talk ? ' talk' : '')
+      const name = document.createElement('span')
+      name.textContent = p.name
+      row.append(name)
+      if (p.muted) {
+        const m = document.createElement('i')
+        m.textContent = 'sessiz'
+        row.append(m)
+      }
+      return row
+    }))
+  })
+</script>
+</html>

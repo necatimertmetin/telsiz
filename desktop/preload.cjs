@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   onPtt: cb => ipcRenderer.on('ptt', (_e, d) => cb(d)),
   onUpdate: cb => ipcRenderer.on('update-ready', () => cb()),
   installUpdate: () => ipcRenderer.send('install-update'),
+  setOverlay: people => ipcRenderer.send('overlay', people),
 })

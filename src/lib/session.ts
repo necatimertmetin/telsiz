@@ -1,8 +1,8 @@
-import {joinRoom} from 'trystero'
-import {dmPartner, isDm, materialize, missingFor, validEvent, visibleTo} from './history'
+import {getRelaySockets, joinRoom} from 'trystero'
+import {dmOthers, isDm, materialize, missingFor, validEvent, visibleTo} from './history'
 import * as db from './db'
 import {lowLatencySdp, randomId} from './util'
-import type {Ev, FileMeta, Presence, View, VoiceState} from './types'
+import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
 
 export const CHUNK = 128 * 1024
 export const AUTO_FETCH = 25 * 1024 * 1024 // küçük dosyalar herkese kendiliğinden iner
@@ -24,10 +24,25 @@ export type Hooks = {
   message(s: Session, e: Ev & {t: 'msg'}): void
   ring(s: Session, name: string): void
   getGameMode(): boolean
+  profile(uid: string, p: Profile): void
+  myProfile(): Profile
+  sfx(s: Session, id: string, peerId: string): void
 }
 type Incoming = {meta: FileMeta; parts: Blob[]; got: number; source: string}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Act = any
+
+// Sadece test: iki kişi birbirine doğrudan bağlanamıyormuş gibi davranır.
+function testBlock(uid: string) {
+  let block: string | null = null
+  try { block = localStorage.getItem('telsiz.block') } catch { /* yok */ }
+  if (block === null) return {}
+  return {onPeerHandshake: async (_: string, send: (d: string) => Promise<void>, receive: () => Promise<{data: string}>) => {
+    await send(uid)
+    const {data} = await receive()
+    if (block!.split(',').includes(data)) throw new Error('test engeli')
+  }}
+}
 
 export class Session {
   readonly events = new Map<string, Ev>()
@@ -40,13 +55,14 @@ export class Session {
   readonly stats = new Map<string, {rtt?: number; relayed?: boolean}>()
   view: View
   linkError = ''
+  relayOk = true
   voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
   onPeerLeft?: (peerId: string) => void
   onPresence?: () => void
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
@@ -59,14 +75,24 @@ export class Session {
     this.room = joinRoom(
       {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, rtcPolyfill: LowLatencyPC, ...(turn.length ? {turnConfig: turn} : {})} as never,
       code,
-      {onJoinError: (d: {error?: string}) => { this.linkError = String(d?.error ?? 'bağlantı kurulamadı'); this.hooks.changed() }} as never,
+      {
+        onJoinError: (d: {error?: string}) => { this.linkError = String(d?.error ?? 'bağlantı kurulamadı'); this.hooks.changed() },
+        ...testBlock(me.uid),
+      } as never,
     )
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'),
     }
     this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.gotHello(p, peerId)
+    this.a.prof.onMessage = (d: {uid: string} & Profile) => {
+      if (!d || typeof d.uid !== 'string') return
+      const color = typeof d.color === 'string' && /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : undefined
+      const avatar = typeof d.avatar === 'string' && d.avatar.startsWith('data:image/jpeg;base64,') && d.avatar.length < 60_000 ? d.avatar : undefined
+      this.hooks.profile(d.uid, {color, avatar})
+    }
+    this.a.sfx.onMessage = (id: string, {peerId}: {peerId: string}) => { if (typeof id === 'string') this.hooks.sfx(this, id, peerId) }
     this.a.ids.onMessage = (d: {uid?: string; ids?: string[]}, {peerId}: {peerId: string}) => {
       if (!d || !Array.isArray(d.ids) || typeof d.uid !== 'string') return
       this.pushEvents(missingFor(this.events, d.ids).filter(e => visibleTo(e, d.uid!)), peerId)
@@ -93,6 +119,8 @@ export class Session {
     r.onPeerJoin = (peerId: string) => {
       this.linkError = ''
       this.a.hello.send(this.presence(), {target: peerId})
+      this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}, {target: peerId})
+      this.announce()
       this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
       for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
       this.retryWanted()
@@ -101,6 +129,7 @@ export class Session {
     r.onPeerLeave = (peerId: string) => {
       this.peers.delete(peerId); this.typing.delete(peerId); this.stats.delete(peerId)
       this.onPeerLeft?.(peerId)
+      this.announce()
       for (const inc of this.incoming.values()) if (inc.source === peerId) { inc.source = ''; void this.locate(inc.meta) }
       this.hooks.changed()
     }
@@ -116,13 +145,33 @@ export class Session {
   }
 
   private rebuild() { this.view = materialize(this.events.values(), this.fallbackTitle); this.hooks.changed() }
-  private presence(): Presence { return {uid: this.me.uid, name: this.me.name, voice: this.voice} }
+  private presence(): Presence {
+    const others: Other[] = [...this.peers.values()].map(p => ({uid: p.uid, name: p.name, voice: p.voice}))
+    return {uid: this.me.uid, name: this.me.name, voice: this.voice, others}
+  }
+
+  // Bana doğrudan bağlı olmayan ama bir arkadaşıma bağlı kişiler.
+  indirect(): Map<string, Other & {via: string}> {
+    const direct = new Set([this.me.uid, ...[...this.peers.values()].map(p => p.uid)])
+    const out = new Map<string, Other & {via: string}>()
+    for (const p of this.peers.values())
+      for (const o of p.others ?? []) if (!direct.has(o.uid) && !out.has(o.uid)) out.set(o.uid, {...o, via: p.name})
+    return out
+  }
+
+  sendSfx(id: string) { this.a.sfx.send(id) }
+  sendProfile() { this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}) }
 
   private gotHello(p: Presence, peerId: string) {
     if (!p || typeof p.uid !== 'string' || typeof p.name !== 'string' || !p.voice) return
-    this.peers.set(peerId, {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice}})
-    this.onPresence?.()
-    this.hooks.changed()
+    const others = Array.isArray(p.others) ? p.others.filter(o => o && typeof o.uid === 'string' && typeof o.name === 'string' && o.voice).slice(0, 20) : []
+    const old = this.peers.get(peerId)
+    const next = {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice}, others}
+    this.peers.set(peerId, next)
+    // Komşunun kendi durumu değişince diğerlerine de duyurulur; sadece 'others' değişince
+    // duyurulmaz, yoksa iki kişi birbirine sonsuza dek haber verir.
+    const same = old && old.uid === next.uid && old.name === next.name && JSON.stringify(old.voice) === JSON.stringify(next.voice)
+    if (same) { this.onPresence?.(); this.hooks.changed() } else this.announce()
   }
 
   announce() { this.a.hello.send(this.presence()); this.onPresence?.(); this.hooks.changed() }
@@ -157,15 +206,16 @@ export class Session {
     this.events.set(ev.id, ev)
     void db.saveEvents(this.code, [ev])
     if (isDm(ch)) {
-      const target = this.peerIdsOf(dmPartner(ch!, this.me.uid))
+      const target = this.peerIdsOf(ch!)
       if (target.length) this.a.ev.send([ev], {target})
     } else this.a.ev.send([ev])
     this.rebuild()
     return ev
   }
 
-  private peerIdsOf(uid: string) {
-    return [...this.peers].filter(([, p]) => p.uid === uid).map(([id]) => id)
+  private peerIdsOf(ch: string) {
+    const uids = new Set(dmOthers(ch, this.me.uid))
+    return [...this.peers].filter(([, p]) => uids.has(p.uid)).map(([id]) => id)
   }
 
   sendSeen(ch: string, ts: number) {
@@ -173,7 +223,7 @@ export class Session {
     this.mySeen.set(ch, ts)
     const msg = {uid: this.me.uid, ch, ts}
     if (isDm(ch)) {
-      const target = this.peerIdsOf(dmPartner(ch, this.me.uid))
+      const target = this.peerIdsOf(ch)
       if (target.length) this.a.seen.send(msg, {target})
     } else this.a.seen.send(msg)
   }
@@ -181,7 +231,7 @@ export class Session {
   sendText(ch: string, text: string, re?: string) { this.emit({t: 'msg', ch, text, ...(re ? {re} : {})} as never) }
   sendTyping(ch: string) {
     if (!isDm(ch)) return void this.a.typing.send(ch)
-    const target = this.peerIdsOf(dmPartner(ch, this.me.uid))
+    const target = this.peerIdsOf(ch)
     if (target.length) this.a.typing.send(ch, {target})
   }
   ring() { this.a.ring.send(1) }
@@ -295,6 +345,7 @@ export class Session {
   }
 
   private async sampleStats() {
+    try { this.relayOk = Object.values(getRelaySockets() as Record<string, WebSocket>).some(w => w.readyState === 1) } catch { /* yok */ }
     for (const [peerId, pc] of Object.entries(this.room.getPeers() as Record<string, RTCPeerConnection>)) {
       const s = this.stats.get(peerId) ?? {}
       s.rtt = await this.room.ping(peerId).catch(() => undefined)

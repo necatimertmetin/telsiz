@@ -1,3 +1,4 @@
+import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
 import {callStarted, callStopped, reapplySpeaker} from './native'
 
@@ -18,6 +19,8 @@ const GAME_SCREEN = 1_500_000
 
 // Herkes herkese doğrudan yollar. 4 kişide kimse için 3 akıştan fazla yükleme yoktur,
 // o yüzden kamera bilerek düşük çözünürlükte: oyun oynarken hattı doldurmasın.
+const RELAY_WAIT = 6000
+
 export class Call {
   remote = new Map<string, Partial<Record<Kind, MediaStream>>>()
   speaking = new Set<string>() // peerId, kendisi için 'me'
@@ -38,9 +41,16 @@ export class Call {
   private known?: Set<string>
   private openUntil = 0
   private wake?: WakeLockSentinel | null
+  private relaying = new Map<string, {stream: MediaStream; to: string}>()
+  private gapSince = new Map<string, number>()
+  clip?: Clipper
+  private relayed = new Map<string, {via: string; el: HTMLAudioElement; an?: AnalyserNode; src?: MediaStreamAudioSourceNode}>()
 
-  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void, private gameMode: () => boolean, private roster: (joined: boolean) => void) {
-    s.room.onPeerStream = (stream: MediaStream, peerId: string, meta?: {kind?: Kind}) => this.gotStream(stream, peerId, meta?.kind ?? 'mic')
+  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void, private gameMode: () => boolean, private roster: (joined: boolean) => void, private meUid: () => string) {
+    s.room.onPeerStream = (stream: MediaStream, peerId: string, meta?: {kind?: Kind | 'relay'; uid?: string}) => {
+      if (meta?.kind === 'relay' && meta.uid) this.gotRelay(stream, peerId, meta.uid)
+      else this.gotStream(stream, peerId, (meta?.kind as Kind) ?? 'mic')
+    }
     s.onPeerLeft = id => this.dropPeer(id)
     s.onPresence = () => this.sync()
   }
@@ -67,7 +77,7 @@ export class Call {
     this.localAn = an
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
-    this.tuner = setInterval(() => void this.tune(), 3000)
+    this.tuner = setInterval(() => { void this.tune(); this.sync() }, 3000)
     this.s.voice = {in: true, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
     this.s.announce()
     void callStarted()
@@ -77,10 +87,15 @@ export class Call {
 
   leave() {
     if (!this.s.voice.in) return
+    this.clip?.stop()
+    this.clip = undefined
     for (const k of ['screen', 'cam', 'mic'] as Kind[]) this.stopLocal(k)
     this.raw?.stop()
     clearInterval(this.timer); clearInterval(this.tuner)
     for (const id of [...this.remote.keys()]) this.dropPeer(id)
+    for (const [uid, r] of this.relayed) this.dropRelayed(uid, r)
+    for (const r of this.relaying.values()) { try { this.s.room.removeStream(r.stream, {target: r.to}) } catch { /* gitti */ } }
+    this.relaying.clear()
     void this.ctx?.close()
     this.ctx = undefined
     this.speaking.clear()
@@ -90,6 +105,22 @@ export class Call {
     this.s.announce()
     void callStopped()
     void this.wake?.release().catch(() => {})
+  }
+
+  // Klip: kendi yayının yoksa arkadaşının ekranı, o da yoksa kamerası kaydedilir; ses hep karışık.
+  private clipSource(): ClipSource {
+    const all = [...this.remote.values()]
+    const pick = this.streams.screen ?? all.find(r => r.screen)?.screen ?? all.find(r => r.cam)?.cam ?? this.streams.cam
+    const audio = [...all.map(r => r.mic), ...all.map(r => r.screen), this.streams.screen, [...this.relayed.values()].map(r => r.el.srcObject as MediaStream)].flat().filter(Boolean) as MediaStream[]
+    if (this.raw) audio.push(new MediaStream([this.raw]))
+    return {video: pick?.getVideoTracks()[0], audio}
+  }
+
+  toggleClip() {
+    if (!this.ctx) return
+    if (this.clip) { this.clip.stop(); this.clip = undefined }
+    else { this.clip = new Clipper(this.ctx, () => this.clipSource()); this.clip.start() }
+    this.changed()
   }
 
   private stopLocal(k: Kind) {
@@ -134,9 +165,71 @@ export class Call {
         gone.forEach(id => this.sent[k].delete(id))
       }
     }
+    this.syncRelay(inVoice)
     this.applyAudio()
     this.changed()
   }
+
+  // Doğrudan bağlanamayan iki kişiyi ikisine de bağlı olan taşır. Birden çok aday varsa
+  // herkes aynı kişiyi seçsin diye en küçük kimlik seçilir, ses iki kez gelmez.
+  private syncRelay(inVoice: Set<string>) {
+    const me = this.meUid()
+    const want = new Map<string, {stream: MediaStream; to: string; uid: string}>()
+    const seen = new Set<string>()
+    const peers = [...inVoice].map(id => ({id, p: this.s.peers.get(id)!})).filter(x => x.p)
+    for (const from of peers) for (const to of peers) {
+      if (from.id === to.id || !to.p.others || to.p.others.some(o => o.uid === from.p.uid)) continue
+      // Bağlantı yeni kuruluyor olabilir: kısa boşluk aktarma sayılmaz, yoksa ses iki kez gelir.
+      const key = `${from.p.uid}>${to.p.uid}`
+      const since = this.gapSince.get(key) ?? Date.now()
+      seen.add(key)
+      this.gapSince.set(key, since)
+      if (Date.now() - since < RELAY_WAIT) continue
+      const cands = [me, ...[...this.s.peers.values()].filter(z => (z.others ?? []).some(o => o.uid === from.p.uid) && (z.others ?? []).some(o => o.uid === to.p.uid)).map(z => z.uid)]
+      if (cands.sort()[0] !== me) continue
+      const stream = this.remote.get(from.id)?.mic
+      if (stream) want.set(`${from.p.uid}>${to.id}`, {stream, to: to.id, uid: from.p.uid})
+    }
+    for (const k of this.gapSince.keys()) if (!seen.has(k)) this.gapSince.delete(k)
+    for (const [k, r] of this.relaying) if (want.get(k)?.stream !== r.stream) {
+      try { this.s.room.removeStream(r.stream, {target: r.to}) } catch { /* gitti */ }
+      this.relaying.delete(k)
+    }
+    for (const [k, w] of want) if (!this.relaying.has(k)) {
+      this.s.room.addStream(w.stream, {target: w.to, metadata: {kind: 'relay', uid: w.uid}})
+      this.relaying.set(k, {stream: w.stream, to: w.to})
+    }
+    for (const [uid, r] of this.relayed) if (!this.s.indirect().get(uid)?.voice.in) this.dropRelayed(uid, r)
+  }
+
+  private dropRelayed(uid: string, r: {el: HTMLAudioElement; src?: MediaStreamAudioSourceNode}) {
+    r.el.srcObject = null
+    r.src?.disconnect()
+    this.relayed.delete(uid)
+    this.speaking.delete('r:' + uid)
+  }
+
+  private gotRelay(stream: MediaStream, via: string, uid: string) {
+    if (!this.s.voice.in) return
+    const old = this.relayed.get(uid)
+    if (old) this.dropRelayed(uid, old)
+    const el = new Audio()
+    el.autoplay = true
+    el.srcObject = stream
+    void el.play().catch(() => {})
+    const entry: {via: string; el: HTMLAudioElement; an?: AnalyserNode; src?: MediaStreamAudioSourceNode} = {via, el}
+    if (this.ctx) {
+      entry.src = this.ctx.createMediaStreamSource(stream)
+      entry.an = this.ctx.createAnalyser()
+      entry.an.fftSize = 512
+      entry.src.connect(entry.an)
+    }
+    this.relayed.set(uid, entry)
+    this.applyAudio()
+    this.changed()
+  }
+
+  hasRelay(uid: string) { return this.relayed.has(uid) }
 
   // Gecikme ayarları: alıcı tamponu en aza, ses öncelikli. Yeni akışta alıcılar değiştiği için tekrar çalışır.
   private async tune() {
@@ -209,6 +302,10 @@ export class Call {
 
   applyAudio() {
     const {speakerId} = this.prefs()
+    for (const [uid, r] of this.relayed) {
+      r.el.muted = this.s.voice.deaf
+      r.el.volume = Math.min(1, this.vol(uid))
+    }
     for (const [id, el] of this.audios) {
       const uid = this.s.peers.get(id)?.uid ?? ''
       el.muted = this.s.voice.deaf
@@ -235,6 +332,9 @@ export class Call {
       const open = this.prefs().ptt ? this.pttDown : now < this.openUntil
       this.send.enabled = !this.s.voice.muted && open
       if (this.send.enabled && this.level > 3) this.speaking.add('me'); else this.speaking.delete('me')
+    }
+    for (const [uid, r] of this.relayed) if (r.an) {
+      if (this.rms(r.an) > 0.012) this.speaking.add('r:' + uid); else this.speaking.delete('r:' + uid)
     }
     for (const [id, {an}] of this.meters) {
       if (this.rms(an) > 0.012) this.speaking.add(id); else this.speaking.delete(id)

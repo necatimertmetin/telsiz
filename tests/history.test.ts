@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {dmId, dmPartner, materialize, missingFor, validEvent, visibleTo} from '../src/lib/history'
+import {dmId, dmMembers, dmOthers, dmPartner, materialize, missingFor, validEvent, visibleTo} from '../src/lib/history'
 import type {Ev} from '../src/lib/types'
 
 const b = (id: string, ts: number, uid = 'a') => ({id, ts, uid, name: uid.toUpperCase()})
@@ -73,5 +73,42 @@ describe('pins', () => {
     const p = (id: string, ts: number, on: boolean): Ev => ({...b(id, ts), t: 'pin', target: '1', on})
     expect(materialize([msg('1', 1), p('2', 2, true)]).byId.get('1')?.pinned).toBe(true)
     expect(materialize([msg('1', 1), p('2', 2, true), p('3', 3, false)]).byId.get('1')?.pinned).toBe(false)
+  })
+})
+
+describe('private groups', () => {
+  it('keeps every member and hides from the rest', () => {
+    const ch = dmId('c', 'a', 'b', 'a')
+    expect(dmMembers(ch)).toEqual(['a', 'b', 'c'])
+    expect(dmOthers(ch, 'a')).toEqual(['b', 'c'])
+    const m: Ev = {...b('1', 1), t: 'msg', ch, text: 'x'}
+    expect(validEvent(m)).toBe(true)
+    expect(visibleTo(m, 'c')).toBe(true)
+    expect(visibleTo(m, 'd')).toBe(false)
+  })
+})
+
+describe('polls', () => {
+  const poll: Ev = {...b('1', 1), t: 'msg', ch: 'genel', text: '', poll: {q: 'Kaçta?', opts: ['21', '22']}}
+  const v = (id: string, ts: number, uid: string, opt: number, on = true): Ev => ({...b(id, ts, uid), t: 'vote', target: '1', opt, on})
+  it('accepts valid and rejects broken polls', () => {
+    expect(validEvent(poll)).toBe(true)
+    expect(validEvent({...poll, poll: {q: 'x', opts: ['tek']}})).toBe(false)
+  })
+  it('gives each person one vote, last one wins', () => {
+    const m = materialize([poll, v('2', 2, 'a', 0), v('3', 3, 'a', 1), v('4', 4, 'b', 1)]).byId.get('1')
+    expect(m?.votes).toEqual({0: [], 1: ['a', 'b']})
+  })
+  it('allows taking a vote back and ignores bad options', () => {
+    expect(materialize([poll, v('2', 2, 'a', 0), v('3', 3, 'a', 0, false)]).byId.get('1')?.votes[0]).toEqual([])
+    expect(materialize([poll, v('2', 2, 'a', 9)]).byId.get('1')?.votes).toEqual({})
+  })
+})
+
+describe('schedule', () => {
+  it('keeps the last setting', () => {
+    const s = (id: string, ts: number, time: string): Ev => ({...b(id, ts), t: 'sched', days: [6], time, on: true})
+    expect(materialize([s('1', 1, '20:00'), s('2', 2, '21:30')]).sched?.time).toBe('21:30')
+    expect(validEvent({...b('1', 1), t: 'sched', days: [9], time: '20:00', on: true})).toBe(false)
   })
 })

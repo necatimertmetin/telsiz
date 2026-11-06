@@ -4,11 +4,12 @@ import {Call, type AudioPrefs} from './call'
 import * as db from './db'
 import {androidPlugin, desktop, isAndroidApp} from './native'
 import {decodeBackup, encodeBackup, isNewer, newRoomCode, randomId} from './util'
-import type {Ev} from './types'
+import {playSfx} from './sfx'
+import type {Ev, Profile} from './types'
 
 type GroupRef = {code: string; title: string}
 export type Route = {kind: 'text'; ch: string} | {kind: 'voice'}
-type Ring = {code: string; name: string; title: string}
+type Ring = {code: string; name: string; title: string; text?: string}
 
 function load<T>(k: string, d: T): T {
   try { const v = localStorage.getItem('telsiz.' + k); return v ? {...(d as object), ...JSON.parse(v)} as T : d } catch { return d }
@@ -43,13 +44,15 @@ class App {
   calls = new Map<string, Call>()
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V'})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
   ring: Ring | null = null
   toast = ''
   search = ''
+  profiles = load<Record<string, Profile>>('prof', {})
+  rejoin: string | null = null
   backupSaved = load<{v: boolean}>('backup', {v: false}).v
   update: {label: string; run: () => void} | null = null
   sourcePicker: {id: string; name: string; thumb: string}[] | null = null
@@ -66,7 +69,8 @@ class App {
     if (this.me.name) this.start()
     desktop()?.onHotkey(k => {
       const c = this.liveCall()
-      if (k === 'mute') c?.toggleMute(); else c?.toggleDeaf()
+      if (k === 'clip') void this.saveClip()
+      else if (k === 'mute') c?.toggleMute(); else c?.toggleDeaf()
     })
     addEventListener('hashchange', () => this.readHash())
     this.setupPtt()
@@ -75,13 +79,20 @@ class App {
       this.bump()
     })
     void this.checkShellUpdate()
+    setInterval(() => this.pushOverlay(), 300)
+    setInterval(() => this.checkSchedules(), 20_000)
+    addEventListener('pagehide', () => {
+      try { const l = this.liveSession(); if (l) sessionStorage.setItem('telsiz.voice', l.code); else sessionStorage.removeItem('telsiz.voice') } catch { /* yok */ }
+    })
+    try { this.rejoin = sessionStorage.getItem('telsiz.voice') } catch { /* yok */ }
     const seen = () => { this.markRead(); this.bump() }
     addEventListener('focus', seen)
     document.addEventListener('visibilitychange', seen)
   }
 
   backupCode() {
-    return encodeBackup({uid: this.me.uid, name: this.me.name, groups: this.groups.map(g => {
+    const color = this.profiles[this.me.uid]?.color
+    return encodeBackup({uid: this.me.uid, name: this.me.name, ...(color ? {color} : {}), groups: this.groups.map(g => {
       const s = this.sessions.get(g.code)
       return {code: g.code, title: s?.view.title ?? g.title}
     })})
@@ -96,6 +107,7 @@ class App {
     const have = new Set(b.groups.map(g => g.code))
     save('me', {uid: b.uid, name: b.name})
     save('groups', [...b.groups, ...this.groups.filter(g => !have.has(g.code))])
+    if (b.color) save('prof', {...this.profiles, [b.uid]: {...this.profiles[b.uid], color: b.color}})
     save('backup', {v: true})
     location.reload()
     return true
@@ -178,11 +190,14 @@ class App {
       message: (se, e) => this.onMessage(se, e),
       ring: (se, name) => this.onRing(se, name),
       getGameMode: () => this.prefs.gameMode,
+      profile: (uid, p) => { this.profiles[uid] = p; save('prof', this.profiles); this.bump() },
+      myProfile: () => this.profiles[this.me.uid] ?? {},
+      sfx: (se, id, peerId) => this.onSfx(se, id, peerId),
     }, this.turnServers())
     this.sessions.set(g.code, s)
     this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode, j => {
       if (this.prefs.sounds) beep(j ? [[523, .07], [659, .09]] : [[659, .07], [440, .09]], .04)
-    }))
+    }, () => this.me.uid))
   }
 
   get session() { return this.active ? this.sessions.get(this.active) ?? null : null }
@@ -263,6 +278,76 @@ class App {
     this.toastTimer = setTimeout(() => { this.toast = ''; this.bump() }, 3000)
     this.bump()
   }
+
+  async saveClip() {
+    const s = this.liveSession(), c = this.liveCall()
+    if (!s || !c?.clip) { this.showToast('Önce klip kaydını aç'); return }
+    const blob = await c.clip.save()
+    if (!blob) { this.showToast('Henüz kaydedilecek bir şey yok'); return }
+    const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, '-')
+    const ch = this.route.kind === 'text' ? this.route.ch : 'genel'
+    s.sendFile(ch, new File([blob], `klip-${stamp}.webm`, {type: 'video/webm'}))
+    this.showToast('Klip sohbete gönderildi')
+  }
+
+  // Oyunun üstündeki küçük pencere: sadece değişiklik olunca gönderilir.
+  private lastOverlay = ''
+  private pushOverlay() {
+    const d = desktop()
+    if (!d?.setOverlay) return
+    const s = this.liveSession(), c = this.liveCall()
+    let people: {name: string; talk: boolean; muted: boolean}[] | null = null
+    if (s && c && this.prefs.overlay) {
+      people = [{name: this.me.name, talk: c.speaking.has('me'), muted: s.voice.muted}]
+      for (const [id, p] of s.peers) if (p.voice.in) people.push({name: p.name, talk: c.speaking.has(id), muted: p.voice.muted})
+      for (const u of s.indirect().values()) if (u.voice.in) people.push({name: u.name, talk: c.speaking.has('r:' + u.uid), muted: u.voice.muted})
+    }
+    const key = JSON.stringify(people)
+    if (key === this.lastOverlay) return
+    this.lastOverlay = key
+    d.setOverlay(people)
+  }
+
+  setProfile(p: Profile) {
+    this.profiles[this.me.uid] = {...this.profiles[this.me.uid], ...p}
+    save('prof', this.profiles)
+    for (const s of this.sessions.values()) s.sendProfile()
+    this.bump()
+  }
+
+  private lastSfx = new Map<string, number>()
+  private onSfx(s: Session, id: string, peerId: string) {
+    const now = Date.now()
+    if (!s.voice.in || s.voice.deaf || !this.prefs.sfx || now - (this.lastSfx.get(peerId) ?? 0) < 700) return
+    this.lastSfx.set(peerId, now)
+    playSfx(id)
+  }
+
+  sendSfx(id: string) {
+    const s = this.liveSession()
+    if (!s) return
+    s.sendSfx(id)
+    if (!s.voice.deaf) playSfx(id)
+  }
+
+  // Grup ayarındaki gün ve saat gelince, uygulama açıksa herkes aynı hatırlatmayı görür.
+  private checkSchedules() {
+    const now = new Date()
+    const hm = now.toTimeString().slice(0, 5)
+    for (const s of this.sessions.values()) {
+      const c = s.view.sched
+      if (!c?.on || !c.days.includes(now.getDay()) || c.time !== hm) continue
+      const key = `${s.code}:${now.toDateString()}`
+      if (this.remindedAt === key) continue
+      this.remindedAt = key
+      this.ring = {code: s.code, name: 'Maç vakti', title: s.view.title, text: 'Sese gelin'}
+      if (this.prefs.sounds) playSfx('ace')
+      this.notify('Telsiz', `${s.view.title}: maç vakti`)
+      desktop()?.flash()
+      this.bump()
+    }
+  }
+  private remindedAt = ''
 
   private onMessage(s: Session, e: Ev & {t: 'msg'}) {
     const fresh = Date.now() - e.ts < 30_000

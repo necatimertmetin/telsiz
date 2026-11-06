@@ -3,6 +3,7 @@ import {app} from '../lib/app'
 import {SCREEN_Q, type Call, type ScreenQ} from '../lib/call'
 import {canShareScreen, desktop, isAndroidApp, setSpeaker, speakerOn} from '../lib/native'
 import type {Session} from '../lib/session'
+import {SFX} from '../lib/sfx'
 import {Avatar} from './App'
 import {Icon} from './Icon'
 
@@ -104,6 +105,21 @@ function DeviceMenu({what, call}: {what: keyof typeof KIND; call: Call}) {
   )
 }
 
+function SfxMenu() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="cgroup solo">
+      <button className="cbtn" aria-label="Ses efektleri" title="Ses efektleri" onClick={() => setOpen(!open)}><Icon n="sfx" /></button>
+      {open && <div className="menuscrim" onClick={() => setOpen(false)} />}
+      {open && (
+        <div className="devmenu sfxgrid" role="menu" aria-label="Ses efektleri">
+          {Object.entries(SFX).map(([id, x]) => <button key={id} onClick={() => app.sendSfx(id)}>{x.label}</button>)}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ScreenMenu({call}: {call: Call}) {
   const [open, setOpen] = useState(false)
   const pick = (q: ScreenQ) => {
@@ -161,6 +177,8 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
     const r = call.remote.get(peerId)
     tiles.push({key: peerId, uid: p.uid, name: p.name, peerId, stream: p.voice.cam ? r?.cam : undefined, muted: p.voice.muted, deaf: p.voice.deaf, talk: call.speaking.has(peerId), self: false})
   }
+  for (const u of s.indirect().values()) if (u.voice.in)
+    tiles.push({key: 'r:' + u.uid, uid: u.uid, name: `${u.name} (${u.via} üzerinden)`, muted: u.voice.muted, deaf: u.voice.deaf, talk: call.speaking.has('r:' + u.uid), self: false})
   const focused = tiles.find(t => t.key === focus)
   const rest = focused ? tiles.filter(t => t !== focused) : tiles
 
@@ -204,6 +222,9 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
             <ScreenMenu call={call} />
           </div>
         )}
+        <SfxMenu />
+        <button className={'cbtn' + (call.clip ? ' act' : '')} aria-label="Klip kaydı" title={call.clip ? 'Klip kaydı açık, kapat' : 'Klip kaydını aç'} onClick={() => call.toggleClip()}><Icon n="clipper" /></button>
+        {call.clip && <button className="cbtn wide" aria-label="Son anı kaydet" title="Son 30-60 saniyeyi sohbete gönder" onClick={() => void app.saveClip()}>Kaydet</button>}
         <button className="cbtn leave" aria-label="Çık" title="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
       </div>
     </div>

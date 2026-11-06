@@ -1,11 +1,13 @@
 import {Fragment, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent} from 'react'
 import {app} from '../lib/app'
-import {dmPartner, isDm, MAX_TEXT} from '../lib/history'
+import {isDm, MAX_TEXT} from '../lib/history'
 import {saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
 import type {FileMeta, Msg} from '../lib/types'
 import {colorFor, fmtDay, fmtSize, fmtTime, isImageUrl, linkify, mentions, previewKind} from '../lib/util'
-import {Avatar} from './App'
+import {Avatar, chatName} from './App'
+import {runCommand} from '../lib/bot'
+import {Modal} from './Modal'
 import {Icon} from './Icon'
 
 const EMOJI = ['👍', '😂', '🔥', '❤️', '💀', '😮', '🎯', '🇹🇷']
@@ -112,6 +114,39 @@ function Recorder({onDone}: {onDone: (f: File) => void}) {
   )
 }
 
+function PollCard({s, m}: {s: Session; m: Msg}) {
+  const total = Object.values(m.votes).reduce((n, v) => n + v.length, 0)
+  return (
+    <div className="poll">
+      <b>{m.poll!.q}</b>
+      {m.poll!.opts.map((o, i) => {
+        const who = m.votes[i] ?? []
+        const mine = who.includes(app.me.uid)
+        return (
+          <button key={i} className={mine ? 'mine' : ''} onClick={() => s.emit({t: 'vote', target: m.id, opt: i, on: !mine} as never)}>
+            <i style={{width: (total ? who.length / total * 100 : 0) + '%'}} />
+            <span className="ell">{o}</span><span className="dim small">{who.map(u => s.view.people.get(u) ?? 'Biri').join(', ')}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function NewPoll({s, ch, onClose}: {s: Session; ch: string; onClose: () => void}) {
+  const [q, setQ] = useState('')
+  const [opts, setOpts] = useState(['', ''])
+  const clean = opts.map(o => o.trim()).filter(Boolean)
+  return (
+    <Modal title="Anket kur" onClose={onClose}>
+      <input autoFocus maxLength={200} placeholder="Soru (ör. Bu akşam kaçta?)" value={q} onChange={e => setQ(e.target.value)} aria-label="Soru" />
+      {opts.map((o, i) => <input key={i} maxLength={80} placeholder={`Seçenek ${i + 1}`} value={o} aria-label={`Seçenek ${i + 1}`} onChange={e => setOpts(opts.map((x, j) => j === i ? e.target.value : x))} />)}
+      {opts.length < 8 && <button className="btn ghost" onClick={() => setOpts([...opts, ''])}>Seçenek ekle</button>}
+      <button className="btn pri" disabled={!q.trim() || clean.length < 2} onClick={() => { s.emit({t: 'msg', ch, text: '', poll: {q: q.trim(), opts: clean}} as never); onClose() }}>Gönder</button>
+    </Modal>
+  )
+}
+
 function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply: () => void}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.text)
@@ -143,6 +178,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit() } if (e.key === 'Escape') setEditing(false) }} aria-label="Mesajı düzenle" />
         ) : m.text && <div className="txt"><Text text={m.text} />{m.edited && <span className="dim small"> (düzenlendi)</span>}</div>}
         {m.text && <LinkedImages text={m.text} />}
+        {m.poll && <PollCard s={s} m={m} />}
         {m.file && <FileCard s={s} f={m.file} own={own} />}
         {Object.keys(m.reacts).length > 0 && (
           <div className="reacts">
@@ -172,14 +208,14 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
   const [text, setText] = useState('')
   const [reply, setReply] = useState<Msg | null>(null)
   const [drag, setDrag] = useState(false)
+  const [polling, setPolling] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const fileInput = useRef<HTMLInputElement>(null)
   const area = useRef<HTMLTextAreaElement>(null)
   const lastTyping = useRef(0)
   const dm = isDm(ch)
-  const partner = dm ? dmPartner(ch, app.me.uid) : ''
-  const chTitle = dm ? (s.view.people.get(partner) ?? [...s.peers.values()].find(p => p.uid === partner)?.name ?? 'Özel sohbet') : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
+  const chTitle = dm ? chatName(s, ch) : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
   const lastOwn = msgs.findLastIndex(m => m.uid === app.me.uid)
   const seenBy = lastOwn < 0 ? [] : [...(s.seen.get(ch) ?? [])]
     .filter(([u, ts]) => u !== app.me.uid && ts >= msgs[lastOwn].ts)
@@ -191,7 +227,10 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
   const send = () => {
     const t = text.trim()
     if (!t) return
-    s.sendText(ch, t, reply?.id)
+    // Takım için seste kim varsa onlar, ses boşsa çevrimiçi herkes sayılır.
+    const live = [...s.peers.values()]
+    const names = (s.voice.in ? [app.me.name, ...live.filter(p => p.voice.in).map(p => p.name)] : [app.me.name, ...live.map(p => p.name)])
+    s.sendText(ch, runCommand(t, names) ?? t, reply?.id)
     setText(''); setReply(null)
     stick.current = true
     area.current?.focus()
@@ -223,7 +262,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
       )}
       <div className="log" ref={box} onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
         {q && msgs.length === 0 && <div className="empty"><p className="dim">Sonuç yok.</p></div>}
-        {!q && msgs.length === 0 && <div className="empty"><h3>{dm ? '@' : '#'} {chTitle}</h3><p className="dim">{dm ? 'Bu sohbet sadece ikinizin cihazında durur, gruptaki diğerlerine gitmez.' : 'Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.'}</p></div>}
+        {!q && msgs.length === 0 && <div className="empty"><h3>{dm ? '@' : '#'} {chTitle}</h3><p className="dim">{dm ? 'Bu sohbet sadece buradaki kişilerin cihazında durur, gruptaki diğerlerine gitmez.' : 'Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.'}</p></div>}
         {msgs.map((m, i) => {
           const p = msgs[i - 1]
           const newDay = !p || new Date(p.ts).toDateString() !== new Date(m.ts).toDateString()
@@ -242,7 +281,8 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
       <div className="composer">
         <input ref={fileInput} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         <button className="ico" aria-label="Dosya ekle" title="Dosya ekle" onClick={() => fileInput.current?.click()}><Icon n="clip" /></button>
-        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} kişisine yaz` : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
+        <button className="ico" aria-label="Anket kur" title="Anket kur" onClick={() => setPolling(true)}><Icon n="poll" /></button>
+        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} için yaz` : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
           onChange={e => {
             setText(e.target.value)
             if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); s.sendTyping(ch) }
@@ -250,6 +290,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
           onKeyDown={onKey} onPaste={onPaste} />
         {text.trim() ? <button className="ico send" aria-label="Gönder" onClick={send}><Icon n="send" /></button> : <Recorder onDone={f => addFiles([f])} />}
       </div>
+      {polling && <NewPoll s={s} ch={ch} onClose={() => setPolling(false)} />}
       {drag && <div className="dropzone">Dosyayı bırak, gruba gönderelim</div>}
     </div>
   )

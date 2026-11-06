@@ -1,7 +1,7 @@
 import {useEffect, useState, type FormEvent} from 'react'
 import {app, useApp} from '../lib/app'
 import type {Session} from '../lib/session'
-import {dmId, dmPartner, isDm} from '../lib/history'
+import {dmId, dmOthers, isDm} from '../lib/history'
 import {desktop} from '../lib/native'
 import {colorFor, initials, parseInvite} from '../lib/util'
 import {Chat} from './Chat'
@@ -13,7 +13,33 @@ import {VoiceStage} from './Voice'
 export const PUBLIC_URL = 'https://necatimertmetin.github.io/telsiz/'
 
 export function Avatar({uid, name, on, s = 34}: {uid: string; name: string; on?: boolean; s?: number}) {
-  return <span className={'av' + (on ? ' talk' : '')} style={{background: colorFor(uid), width: s, height: s, fontSize: s * .44}}>{initials(name)}</span>
+  const p = app.profiles[uid]
+  return (
+    <span className={'av' + (on ? ' talk' : '')} style={{background: p?.color ?? colorFor(uid), width: s, height: s, fontSize: s * .44}}>
+      {p?.avatar ? <img src={p.avatar} alt="" /> : initials(name)}
+    </span>
+  )
+}
+
+export function chatName(s: Session, ch: string) {
+  const n = (u: string) => s.view.people.get(u) ?? [...s.peers.values()].find(p => p.uid === u)?.name ?? 'Biri'
+  return dmOthers(ch, app.me.uid).map(n).join(', ')
+}
+
+function NewPrivate({s, onClose}: {s: Session; onClose: () => void}) {
+  const [picked, setPicked] = useState<string[]>([])
+  const {online, offline} = people(s)
+  const list = [...online.filter(u => u.key !== 'me'), ...offline]
+  return (
+    <Modal title="Özel sohbet kur" onClose={onClose}>
+      <p className="dim small">Seçtiğin kişilerle ayrı sohbet. Mesajlar sadece bu kişilerin cihazına gider, gruptaki diğerleri görmez.</p>
+      {list.length === 0 && <p className="dim">Henüz seçilecek kimse yok.</p>}
+      {list.map(u => (
+        <label className="check" key={u.uid}><input type="checkbox" checked={picked.includes(u.uid)} onChange={e => setPicked(e.target.checked ? [...picked, u.uid] : picked.filter(x => x !== u.uid))} /> {u.name}</label>
+      ))}
+      <button className="btn pri" disabled={!picked.length} onClick={() => { app.go({kind: 'text', ch: dmId(app.me.uid, ...picked)}); onClose() }}>Sohbeti aç</button>
+    </Modal>
+  )
 }
 
 function NameStep() {
@@ -111,11 +137,12 @@ function people(s: Session) {
   const online: {key: string; uid: string; name: string; peerId?: string}[] = [{key: 'me', uid: app.me.uid, name: app.me.name}]
   seen.add(app.me.uid)
   for (const [peerId, p] of s.peers) if (!seen.has(p.uid)) { seen.add(p.uid); online.push({key: peerId, uid: p.uid, name: p.name, peerId}) }
+  for (const uid of s.indirect().keys()) seen.add(uid)
   const offline = [...s.view.people].filter(([uid]) => !seen.has(uid)).map(([uid, name]) => ({uid, name}))
   return {online, offline}
 }
 
-function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () => void; onSettings: () => void; onNavigate: () => void}) {
+function Side({s, onInvite, onSettings, onNavigate, onPrivate}: {s: Session; onInvite: () => void; onSettings: () => void; onNavigate: () => void; onPrivate: () => void}) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
   const call = app.call!
@@ -149,10 +176,10 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
             </button>
           )
         })}
-        {dms.length > 0 && <div className="sect">Özel sohbetler</div>}
+        <div className="sect">Özel sohbetler <button className="ico sm" aria-label="Özel sohbet kur" title="Özel sohbet kur" onClick={onPrivate}><Icon n="plus" s={15} /></button></div>
         {dms.map(ch => {
-          const uid = dmPartner(ch, app.me.uid)
-          const name = s.view.people.get(uid) ?? 'Biri'
+          const uid = dmOthers(ch, app.me.uid)[0]
+          const name = chatName(s, ch)
           const n = app.unread(s, ch)
           return (
             <button key={ch} className={'chan' + (app.route.kind === 'text' && app.route.ch === ch ? ' on' : '')} onClick={() => { app.go({kind: 'text', ch}); onNavigate() }}>
@@ -212,6 +239,11 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
           </button>
         )
       })}
+      {[...s.indirect().values()].map(u => (
+        <button className="member warn" key={u.uid} title="Bu kişiyle doğrudan bağlantı kurulamadı" onClick={() => openDm(u.uid, onOpen)}>
+          <Avatar uid={u.uid} name={u.name} s={30} /><span className="ell grow">{u.name}<small className="via">{u.via} üzerinden</small></span>
+        </button>
+      ))}
       {offline.length > 0 && <div className="sect">Çevrimdışı</div>}
       {offline.map(u => <button className="member off" key={u.uid} title="Özel mesaj" onClick={() => openDm(u.uid, onOpen)}><Avatar uid={u.uid} name={u.name} s={30} /><span className="ell">{u.name}</span></button>)}
     </>
@@ -242,7 +274,7 @@ function SourcePicker() {
 
 export function App() {
   useApp()
-  const [modal, setModal] = useState<'add' | 'invite' | 'settings' | null>(null)
+  const [modal, setModal] = useState<'add' | 'invite' | 'settings' | 'private' | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [searching, setSearching] = useState(false)
   const unread = [...app.sessions.values()].reduce((n, x) => n + app.unreadGroup(x), 0)
@@ -267,7 +299,7 @@ export function App() {
   const ring = app.ring
   const route = app.route
   const title = route.kind === 'voice' ? 'Telsiz odası'
-    : isDm(route.ch) ? '@ ' + (s.view.people.get(dmPartner(route.ch, app.me.uid)) ?? [...s.peers.values()].find(p => p.uid === dmPartner(route.ch, app.me.uid))?.name ?? 'Özel sohbet')
+    : isDm(route.ch) ? '@ ' + chatName(s, route.ch)
     : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
   const alone = s.peers.size === 0
 
@@ -276,7 +308,7 @@ export function App() {
       <div className="scrim" onClick={() => setDrawer(false)} />
       <div className="left">
         <Rail onAdd={() => setModal('add')} />
-        <Side s={s} onInvite={() => setModal('invite')} onSettings={() => setModal('settings')} onNavigate={() => setDrawer(false)} />
+        <Side s={s} onInvite={() => setModal('invite')} onSettings={() => setModal('settings')} onNavigate={() => setDrawer(false)} onPrivate={() => setModal('private')} />
       </div>
       <main className="main">
         <header className="topbar">
@@ -291,6 +323,8 @@ export function App() {
         </header>
         {!app.backupSaved && <button className="backupbar" onClick={() => setModal('settings')}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
         {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
+        {!s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
+        {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
         {alone && (
           <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
         )}
@@ -304,10 +338,11 @@ export function App() {
       {modal === 'add' && <Modal title="Grup ekle" onClose={() => setModal(null)}><GroupForm onDone={() => setModal(null)} /></Modal>}
       {modal === 'invite' && <Invite s={s} onClose={() => setModal(null)} />}
       {modal === 'settings' && <Settings s={s} onClose={() => setModal(null)} />}
+      {modal === 'private' && <NewPrivate s={s} onClose={() => setModal(null)} />}
       <SourcePicker />
       {ring && (
         <div className="ring" role="alert">
-          <Icon n="bell" /><span className="grow"><b>{ring.name}</b> seni sese çağırıyor · {ring.title}</span>
+          <Icon n="bell" /><span className="grow"><b>{ring.name}</b> {ring.text ?? 'seni sese çağırıyor'} · {ring.title}</span>
           <button className="btn pri" onClick={() => { app.select(ring.code); app.ring = null; void app.joinVoice() }}>Katıl</button>
           <button className="ico" aria-label="Kapat" onClick={() => { app.ring = null; app.bump() }}><Icon n="x" /></button>
         </div>

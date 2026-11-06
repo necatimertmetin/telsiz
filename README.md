@@ -12,8 +12,13 @@ Arkadaş grupları için hesapsız, sunucusuz sesli ve görüntülü sohbet. İs
 - Sesli mesaj, GIF ve resim gösterimi
 - Her türlü dosya, boyut sınırı yok. Dosya sunucuya değil doğrudan arkadaşına gider
 - Geçmiş cihazda durur, grup açılınca herkes birbirini tamamlar
+- Seçili kişilerle özel grup sohbeti, anket, maç hatırlatması, profil rengi ve fotoğrafı
+- Sohbet komutları: `/zar`, `/yazitura`, `/harita`, `/takim`, `/sec`, `/yardim`
+- Görüşmede ses efektleri ve son 30-60 saniyeyi sohbete gönderen klip kaydı
+- İki kişi doğrudan bağlanamazsa ses, ikisine de bağlı bir arkadaş üzerinden geçer
 - Hesap yok, kayıt yok, ücret yok
-- Windows uygulamasında oyundayken `Ctrl+Shift+M` mikrofon, `Ctrl+Shift+D` kulaklık
+- Windows uygulamasında oyundayken `Ctrl+Shift+M` mikrofon, `Ctrl+Shift+D` kulaklık, `Ctrl+Shift+K` klip
+- Windows uygulamasında oyunun üstünde konuşanlar listesi. Oyunun içine girmez, oyun pencereli tam ekranda olmalı
 - Android uygulamasında ekran kapalıyken görüşme sürer
 
 ## Nasıl çalışır
@@ -30,7 +35,7 @@ Telsiz'in sunucusu yok, o yüzden ödenecek fatura da yok.
 - Mesaj sadece grupta biri çevrimiçiyken yayılır. Herkes kapalıyken yazılan, ilk açılan kişide durur ve sonra eşitlenir.
 - Dosya, sahibi ya da indirmiş biri çevrimiçiyken alınabilir. 300 MB üstü dosyalar uygulama kapanınca cihazda kalmaz.
 - Uygulama tamamen kapalıysa çağrı bildirimi gelmez.
-- Bazı operatörlerin ağları doğrudan bağlantıyı engeller. Böyle olursa Ayarlar > Gelişmiş bölümüne ücretsiz bir TURN hesabı girilebilir.
+- Bazı operatörlerin ağları doğrudan bağlantıyı engeller. Aradaki arkadaş sadece sesi taşır, görüntüyü ve ekranı taşımaz. Kimse aradan bağlanamıyorsa Ayarlar > Gelişmiş bölümüne ücretsiz bir TURN hesabı girilebilir.
 
 ## Geliştirme
 
@@ -46,6 +51,8 @@ Dört tarayıcıyla uçtan uca sınama (Chrome gerekir, gerçek röleleri kullan
 npm run build
 npx vite preview --port 4173
 npm run e2e
+node e2e/relay.mjs
+node e2e/features.mjs
 ```
 
 Masaüstü ve Android kabukları canlı siteyi açar, bu yüzden web'e çıkan düzeltme yeniden kurulum gerektirmez. Kabuğun kendisi değişirse:

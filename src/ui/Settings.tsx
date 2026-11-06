@@ -2,7 +2,17 @@ import {useEffect, useState} from 'react'
 import {app} from '../lib/app'
 import {desktop, saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
+import {colorFor} from '../lib/util'
+import {Avatar} from './App'
 import {Modal} from './Modal'
+
+async function pickAvatar(f: File) {
+  const bmp = await createImageBitmap(f)
+  const side = Math.min(bmp.width, bmp.height)
+  const c = Object.assign(document.createElement('canvas'), {width: 96, height: 96})
+  c.getContext('2d')!.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, 96, 96)
+  app.setProfile({avatar: c.toDataURL('image/jpeg', .8)})
+}
 
 const REL = 'https://github.com/necatimertmetin/telsiz/releases/latest/download'
 
@@ -13,6 +23,8 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
   const [turn, setTurn] = useState(app.turn.raw)
   const [listening, setListening] = useState(false)
   const [restore, setRestore] = useState('')
+  const sched = s.view.sched ?? {days: [5, 6], time: '21:00', on: false}
+  const setSched = (c: typeof sched) => s.emit({t: 'sched', ...c} as never)
   useEffect(() => {
     if (!listening) return
     const done = (vk: number, label: string) => { p.pttVk = vk; p.pttLabel = label; app.savePrefs(); app.applyPtt(); setListening(false) }
@@ -44,9 +56,24 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
       <label className="field">Takma adın
         <input maxLength={32} value={name} onChange={e => setName(e.target.value)} onBlur={() => { if (name.trim() && name !== app.me.name) app.setName(name) }} />
       </label>
+      <div className="row">
+        <Avatar uid={app.me.uid} name={app.me.name} s={52} />
+        <label className="btn">Fotoğraf seç<input type="file" accept="image/*" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void pickAvatar(f); e.target.value = '' }} /></label>
+        <input type="color" aria-label="Profil rengi" value={app.profiles[app.me.uid]?.color ?? colorFor(app.me.uid)} onChange={e => app.setProfile({color: e.target.value})} />
+        {app.profiles[app.me.uid]?.avatar && <button className="linkbtn" onClick={() => app.setProfile({avatar: undefined})}>Kaldır</button>}
+      </div>
       <label className="field">Grup adı
         <input maxLength={40} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { const t = title.trim(); if (t && t !== s.view.title) s.emit({t: 'group', title: t} as never) }} />
       </label>
+
+      <h4>Maç hatırlatması</h4>
+      <div className="days">
+        {['Pz', 'Pt', 'Sa', 'Ça', 'Pe', 'Cu', 'Ct'].map((d, i) => (
+          <button key={d} className={sched.days.includes(i) ? 'on' : ''} aria-pressed={sched.days.includes(i)} onClick={() => setSched({...sched, days: sched.days.includes(i) ? sched.days.filter(x => x !== i) : [...sched.days, i]})}>{d}</button>
+        ))}
+        <input type="time" value={sched.time} aria-label="Saat" onChange={e => setSched({...sched, time: e.target.value})} />
+      </div>
+      <label className="check"><input type="checkbox" checked={sched.on} onChange={e => setSched({...sched, on: e.target.checked})} /> Gruptaki herkese hatırlat (uygulama açıkken)</label>
 
       <h4>Yedek kodu</h4>
       <p className="dim small">Hesap yok, kimliğin ve grupların bu cihazda duruyor. Bu kodu sakla: başka cihazda ya da veriler silinince yapıştırıp aynı isim ve gruplarla dönersin, eski mesajlar arkadaşlarından iner. Kodu alan gruplarına girer, kimseyle paylaşma.</p>
@@ -74,6 +101,8 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
       </label>
       <label className="check"><input type="checkbox" checked={p.noise} onChange={e => { p.noise = e.target.checked; app.savePrefs(); void live?.changeMic() }} /> Gürültü engelleme</label>
       <label className="check"><input type="checkbox" checked={p.gameMode} onChange={e => { p.gameMode = e.target.checked; app.savePrefs() }} /> Oyun modu: oyunun pingi için kamera ve dosya yüklemesi kısılır, otomatik indirme kapanır</label>
+      {desktop()?.setOverlay && <label className="check"><input type="checkbox" checked={p.overlay} onChange={e => { p.overlay = e.target.checked; app.savePrefs() }} /> Oyunun üstünde konuşanları göster (oyun "pencereli tam ekran" olmalı)</label>}
+      <label className="check"><input type="checkbox" checked={p.sfx} onChange={e => { p.sfx = e.target.checked; app.savePrefs() }} /> Arkadaşların ses efektlerini duy</label>
       <label className="check"><input type="checkbox" checked={p.sounds} onChange={e => { p.sounds = e.target.checked; app.savePrefs() }} /> Bildirim sesleri</label>
       <label className="check"><input type="checkbox" checked={p.ptt} onChange={e => { p.ptt = e.target.checked; app.savePrefs(); app.applyPtt() }} /> Bas-konuş: sadece tuşa basılıyken ses gitsin</label>
       {p.ptt && (

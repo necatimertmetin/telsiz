@@ -70,6 +70,10 @@ describe('backup code', () => {
     expect(decodeBackup(encodeBackup(b))).toEqual(b)
     expect(decodeBackup(`kodum: ${encodeBackup(b)} \n`)).toEqual(b)
   })
+  it('keeps a valid color and drops a broken one', () => {
+    expect(decodeBackup(encodeBackup({...b, color: '#aa22cc'}))?.color).toBe('#aa22cc')
+    expect(decodeBackup(encodeBackup({...b, color: 'url(x)'}))).toEqual(b)
+  })
   it('rejects junk and drops bad group codes', () => {
     expect(decodeBackup('selam')).toBeNull()
     expect(decodeBackup('telsiz1.@@@')).toBeNull()

@@ -10,7 +10,7 @@ type TelsizPlugin = {
   installUpdate?(o: {url: string}): Promise<void>
 }
 export type DesktopBridge = {
-  onHotkey(cb: (k: 'mute' | 'deaf') => void): void
+  onHotkey(cb: (k: 'mute' | 'deaf' | 'clip') => void): void
   listSources(): Promise<{id: string; name: string; thumb: string}[]>
   pickSource(id: string | null, audio: boolean): Promise<void>
   flash(): void
@@ -18,6 +18,7 @@ export type DesktopBridge = {
   onPtt?(cb: (down: boolean) => void): void
   onUpdate?(cb: () => void): void
   installUpdate?(): void
+  setOverlay?(people: {name: string; talk: boolean; muted: boolean}[] | null): void
 }
 declare global {
   interface Window {

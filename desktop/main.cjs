@@ -15,6 +15,26 @@ if (!app.requestSingleInstanceLock()) app.quit()
 
 let win, tray, quitting = false, picked = null, pickedAudio = false
 
+// Oyunun içine girmez, sıradan bir üst pencere: tıklamalar oyuna geçer, odak almaz.
+// Bu yüzden özel tam ekranda görünmez, pencereli tam ekranda görünür.
+let overlay = null
+function setOverlay(people) {
+  if (!people) { overlay?.hide(); return }
+  if (!overlay) {
+    overlay = new BrowserWindow({
+      x: 12, y: 80, width: 230, height: 300, frame: false, transparent: true, resizable: false, movable: false,
+      focusable: false, skipTaskbar: true, hasShadow: false, show: false, alwaysOnTop: true,
+      webPreferences: {preload: path.join(__dirname, 'overlay-preload.cjs'), contextIsolation: true, sandbox: true},
+    })
+    overlay.setAlwaysOnTop(true, 'screen-saver')
+    overlay.setIgnoreMouseEvents(true)
+    overlay.loadFile(path.join(__dirname, 'overlay.html'))
+    overlay.on('closed', () => { overlay = null })
+  }
+  const send = () => { overlay?.webContents.send('people', people); overlay?.showInactive() }
+  if (overlay.webContents.isLoading()) overlay.webContents.once('did-finish-load', send); else send()
+}
+
 // Bas-konuş: tuş durumu sorgulanır. Klavye kancası ya da oyuna müdahale yok.
 let keyState = null
 try {
@@ -98,11 +118,13 @@ app.whenReady().then(() => {
   ipcMain.handle('pick', (_e, id, audio) => { picked = id; pickedAudio = !!audio })
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
   ipcMain.on('ptt', (_e, vk) => setPtt(vk))
+  ipcMain.on('overlay', (_e, people) => setOverlay(people))
 
   createWindow()
 
   globalShortcut.register('CommandOrControl+Shift+M', () => win?.webContents.send('hotkey', 'mute'))
   globalShortcut.register('CommandOrControl+Shift+D', () => win?.webContents.send('hotkey', 'deaf'))
+  globalShortcut.register('CommandOrControl+Shift+K', () => win?.webContents.send('hotkey', 'clip'))
 
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({width: 16, height: 16}))
   tray.setToolTip('Telsiz')
@@ -118,5 +140,5 @@ app.whenReady().then(() => {
 })
 
 app.on('second-instance', () => { if (win) { win.show(); win.focus() } })
-app.on('before-quit', () => { quitting = true })
+app.on('before-quit', () => { quitting = true; overlay?.destroy() })
 app.on('will-quit', () => globalShortcut.unregisterAll())
