@@ -2,8 +2,11 @@ import {useSyncExternalStore} from 'react'
 import {Session, type Me} from './session'
 import {Call, type AudioPrefs} from './call'
 import * as db from './db'
-import {androidPlugin, desktop, isAndroidApp} from './native'
+import {androidPlugin, desktop, isAndroidApp, shellVersion} from './native'
 import {decodeBackup, encodeBackup, isNewer, newRoomCode, randomId} from './util'
+
+const latestTag = async (): Promise<string | undefined> =>
+  (await fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json()))?.tag_name
 import {loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
 import {playSfx} from './sfx'
 import type {Ev, Profile} from './types'
@@ -156,24 +159,42 @@ class App {
   private async checkShellUpdate() {
     const d = desktop(), p = androidPlugin()
     if (!(isAndroidApp() && p) && !d) return
-    const base = 'https://github.com/necatimertmetin/telsiz/releases/latest/download'
-    const page = () => window.open('https://github.com/necatimertmetin/telsiz/releases/latest', '_blank')
     if (d) {
-      if (!d.onUpdate) this.update = {label: 'Yeni sürüm var, otomatik güncelleme için bir kez kur', run: page}
+      if (!d.onUpdate) this.update = {label: 'Yeni sürüm var, otomatik güncelleme için bir kez kur', run: this.releasePage}
       return this.bump()
     }
-    if (!p!.appVersion) { this.update = {label: 'Yeni sürüm var, bir kez elle kur', run: page}; return this.bump() }
+    if (!p!.appVersion) { this.update = {label: 'Yeni sürüm var, bir kez elle kur', run: this.releasePage}; return this.bump() }
     try {
-      const [{version}, rel] = await Promise.all([p!.appVersion(), fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json())])
-      if (rel?.tag_name && isNewer(rel.tag_name, version)) {
-        this.update = {label: `Yeni sürüm ${rel.tag_name}: güncelle`, run: () => {
-          this.update = null
-          this.showToast('İndiriliyor, kurulum ekranı açılacak')
-          void p!.installUpdate?.({url: `${base}/Telsiz.apk`}).catch(() => this.showToast('Güncelleme indirilemedi'))
-        }}
-        this.bump()
-      }
+      const [version, tag] = await Promise.all([shellVersion(), latestTag()])
+      if (tag && version && isNewer(tag, version)) this.offerApk(tag)
     } catch { /* internet yoksa sonraki açılışta bakılır */ }
+  }
+
+  private releasePage = () => { window.open('https://github.com/necatimertmetin/telsiz/releases/latest', '_blank') }
+
+  private offerApk(tag: string) {
+    this.update = {label: `Yeni sürüm ${tag}: güncelle`, run: () => {
+      this.update = null
+      this.showToast('İndiriliyor, kurulum ekranı açılacak')
+      void androidPlugin()?.installUpdate?.({url: 'https://github.com/necatimertmetin/telsiz/releases/latest/download/Telsiz.apk'}).catch(() => this.showToast('Güncelleme indirilemedi'))
+    }}
+    this.bump()
+  }
+
+  // Ayarlardaki düğme. Sonucu ekranda gösterilecek metin olarak döner.
+  async checkUpdateNow(): Promise<string> {
+    try {
+      const [version, tag] = await Promise.all([shellVersion(), latestTag()])
+      if (!version || !tag) return 'Denetlenemedi, biraz sonra yine dene'
+      if (!isNewer(tag, version)) return `Güncelsin (${version})`
+      const d = desktop()
+      if (!d) { this.offerApk(tag); return `Yeni sürüm: ${tag}` }
+      // İndirme bitince üstteki güncelleme çubuğu kendiliğinden çıkar.
+      if (await d.checkUpdate?.()) return `${tag} indiriliyor, bitince burada yeniden başlat düğmesi çıkar`
+      this.update = {label: `Yeni sürüm ${tag}: indirme sayfası`, run: this.releasePage}
+      this.bump()
+      return `Yeni sürüm: ${tag}`
+    } catch { return 'Denetlenemedi, internetini kontrol et' }
   }
 
   subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f) } }

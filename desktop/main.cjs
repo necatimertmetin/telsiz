@@ -53,6 +53,8 @@ function setPtt(vk) {
   }, 25)
 }
 
+let checkUpdate = async () => false
+
 // Kurulu sürüm kendini günceller. Taşınabilir sürümün yerine yazılacak kurulumu yok.
 function setupUpdates() {
   if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) return
@@ -67,6 +69,7 @@ function setupUpdates() {
   const check = () => autoUpdater.checkForUpdates().catch(e => console.log('update-error', e.message))
   check()
   setInterval(check, 6 * 3600 * 1000)
+  checkUpdate = () => autoUpdater.checkForUpdates().then(() => true, () => false)
 }
 
 // İlk tepsiye inişte söyle: pencere kapandı sanıp bir daha açmaya çalışmasın.
@@ -116,6 +119,8 @@ app.whenReady().then(() => {
     return list.map(s => ({id: s.id, name: s.name, thumb: s.thumbnail.toDataURL()}))
   })
   ipcMain.handle('pick', (_e, id, audio) => { picked = id; pickedAudio = !!audio })
+  ipcMain.handle('app-version', () => app.getVersion())
+  ipcMain.handle('check-update', () => checkUpdate())
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
   ipcMain.on('ptt', (_e, vk) => setPtt(vk))
   ipcMain.on('overlay', (_e, people) => setOverlay(people))

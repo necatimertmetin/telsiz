@@ -18,6 +18,8 @@ export type DesktopBridge = {
   onPtt?(cb: (down: boolean) => void): void
   onUpdate?(cb: () => void): void
   installUpdate?(): void
+  appVersion?(): Promise<string>
+  checkUpdate?(): Promise<boolean>
   setOverlay?(people: {name: string; talk: boolean; muted: boolean}[] | null): void
 }
 declare global {
@@ -30,6 +32,12 @@ declare global {
 export const desktop = () => window.telsizDesktop
 export const androidPlugin = () => window.Capacitor?.Plugins?.Telsiz
 const plugin = () => window.Capacitor?.Plugins?.Telsiz
+// Eski masaüstü kabuğunda köprü yok, Electron sürümü tarayıcı kimliğine de yazar.
+export async function shellVersion(): Promise<string | null> {
+  const p = androidPlugin()
+  if (p?.appVersion) return (await p.appVersion()).version
+  return await desktop()?.appVersion?.() ?? navigator.userAgent.match(/telsiz(?:-desktop)?\/(\d+\.\d+\.\d+)/i)?.[1] ?? null
+}
 export const isAndroidApp = () => window.Capacitor?.getPlatform?.() === 'android'
 export const canShareScreen = () => !isAndroidApp() && !!navigator.mediaDevices?.getDisplayMedia
 

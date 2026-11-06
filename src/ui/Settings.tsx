@@ -23,6 +23,8 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
   const [turn, setTurn] = useState(app.turn.raw)
   const [listening, setListening] = useState(false)
   const [restore, setRestore] = useState('')
+  const [upMsg, setUpMsg] = useState<string | null>(null)
+  const [upBusy, setUpBusy] = useState(false)
   const sched = s.view.sched ?? {days: [5, 6], time: '21:00', on: false}
   const setSched = (c: typeof sched) => s.emit({t: 'sched', ...c} as never)
   useEffect(() => {
@@ -121,6 +123,16 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
             <a className="btn" href={`${REL}/Telsiz.apk`}>Android</a>
           </div>
           <p className="dim small">Windows uygulamasında oyundayken kısayolla mikrofon kapanır. iPhone'da Safari'de aç, Paylaş &gt; Ana Ekrana Ekle.</p>
+        </>
+      )}
+
+      {(desktop() || window.Capacitor) && (
+        <>
+          <h4>Güncelleme</h4>
+          {app.update
+            ? <button className="btn pri" onClick={() => app.update?.run()}>{app.update.label}</button>
+            : <button className="btn" disabled={upBusy} onClick={async () => { setUpBusy(true); setUpMsg(await app.checkUpdateNow()); setUpBusy(false) }}>{upBusy ? 'Denetleniyor…' : 'Güncellemeleri denetle'}</button>}
+          {upMsg && <p className="dim small" role="status">{upMsg}</p>}
         </>
       )}
 
