@@ -52,7 +52,7 @@ function NameStep() {
       <form className="card" onSubmit={submit}>
         <img src="icon.svg" width="72" height="72" alt="" />
         <h1>Telsiz</h1>
-        <p className="dim">Hesap yok, şifre yok. Arkadaşların seni tanısın diye bir isim yaz, yeter.</p>
+        <p className="dim">{/\/ses$/.test(location.hash) ? 'Arkadaşların sesli sohbette. İsmini yaz, direkt yanlarına bağlanırsın.' : 'Hesap yok, şifre yok. Arkadaşların seni tanısın diye bir isim yaz, yeter.'}</p>
         <input autoFocus maxLength={32} placeholder="Takma adın" value={v} onChange={e => setV(e.target.value)} aria-label="Takma adın" />
         <button className="btn pri" disabled={!v.trim()}>Devam</button>
         {restore ? (

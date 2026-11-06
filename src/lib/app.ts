@@ -188,11 +188,24 @@ class App {
   }
 
   private readHash() {
-    const m = location.hash.match(/^#\/katil\/([a-z2-9-]+)/)
+    const m = location.hash.match(/^#\/katil\/([a-z2-9-]+)(\/ses)?/)
     if (m && this.me.name) {
+      const known = this.sessions.has(m[1])
       this.join(m[1])
       history.replaceState(null, '', location.pathname)
+      // Adını yeni yazan ya da grubu tanıyan bilerek geliyor. Diğeri tanımadığı bir linke tıklamış
+      // olabilir: fark etmeden yabancı odaya sesi gitmesin diye mikrofon kapalı girer.
+      if (m[2]) void this.joinFromLink(!known && !this.namedNow)
+      this.namedNow = false
     }
+  }
+
+  private namedNow = false
+  private async joinFromLink(muted: boolean) {
+    const code = this.active
+    await this.joinVoice(false, muted)
+    if (!this.liveSession()) { this.rejoin = code; this.bump(); return }
+    if (muted) this.showToast('Sese mikrofonun kapalı girdin, açmak için mikrofona bas')
   }
 
   private turnServers(): RTCIceServer[] {
@@ -227,6 +240,7 @@ class App {
 
   setName(name: string) {
     const first = !this.me.name
+    this.namedNow = first
     this.me = {...this.me, name: name.trim().slice(0, 32)}
     save('me', this.me)
     if (first) this.start()
@@ -393,13 +407,13 @@ class App {
     try { new Notification(title, {body, icon: 'icon-192.png'}) } catch { /* mobil kısıtı */ }
   }
 
-  async joinVoice(cam = false) {
+  async joinVoice(cam = false, muted = false) {
     const c = this.call
     if (!c) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission().catch(() => {})
     this.liveCall()?.leave()
     try {
-      await c.join(cam)
+      await c.join(cam, muted)
       if (this.prefs.sounds) beep([[523, .08], [784, .12]])
       this.route = {kind: 'voice'}
     } catch (e) {

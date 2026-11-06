@@ -30,6 +30,13 @@ Hepsi `gelistirme` dalında birikir. Liste bitip tüm testler geçince `main`'e 
 - [x] Gerçek silme
 - [x] Yedek kodunda anahtar
 
+## Sırada
+
+- [x] Sese davet linki
+- [x] Ses odası yan sohbeti
+- [x] Birlikte YouTube izleme, sıra listesi, müzik modu
+- [x] Windows uygulamasına logo gömme
+
 ## Sonra
 
 - [ ] Gruptan atma

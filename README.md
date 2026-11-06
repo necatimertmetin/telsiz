@@ -14,6 +14,8 @@ Arkadaş grupları için hesapsız, sunucusuz sesli ve görüntülü sohbet. İs
 - Geçmiş cihazda durur, grup açılınca herkes birbirini tamamlar
 - Seçili kişilerle özel grup sohbeti, anket, maç hatırlatması, profil rengi ve fotoğrafı
 - Sohbet komutları: `/zar`, `/yazitura`, `/harita`, `/takim`, `/sec`, `/yardim`
+- Ses odasının yan sohbeti, sesli davet linki
+- YouTube'u birlikte izleme ve dinleme: oda sohbetine link yaz, sıraya girer, herkes aynı anda oynatır, durdurur, sarar
 - Görüşmede ses efektleri ve son 30-60 saniyeyi sohbete gönderen klip kaydı
 - İki kişi doğrudan bağlanamazsa ses, ikisine de bağlı bir arkadaş üzerinden geçer
 - Hesap yok, kayıt yok, ücret yok
@@ -64,6 +66,9 @@ npm run e2e
 node e2e/relay.mjs
 node e2e/features.mjs
 node e2e/security.mjs
+node e2e/tv.mjs
+node e2e/voicelink.mjs
+node e2e/twodevice.mjs
 ```
 
 Masaüstü ve Android kabukları canlı siteyi açar, bu yüzden web'e çıkan düzeltme yeniden kurulum gerektirmez. Kabuğun kendisi değişirse:

@@ -215,7 +215,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
   const area = useRef<HTMLTextAreaElement>(null)
   const lastTyping = useRef(0)
   const dm = isDm(ch)
-  const chTitle = dm ? chatName(s, ch) : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
+  const chTitle = dm ? chatName(s, ch) : ch === 'ses' ? 'oda sohbeti' : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
   const lastOwn = msgs.findLastIndex(m => m.uid === app.me.uid)
   const seenBy = lastOwn < 0 ? [] : [...(s.seen.get(ch) ?? [])]
     .filter(([u, ts]) => u !== app.me.uid && ts >= msgs[lastOwn].ts)
@@ -231,6 +231,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
     const live = [...s.peers.values()]
     const names = (s.voice.in ? [app.me.name, ...live.filter(p => p.voice.in).map(p => p.name)] : [app.me.name, ...live.map(p => p.name)])
     s.sendText(ch, runCommand(t, names) ?? t, reply?.id)
+    if (ch === 'ses') s.tvAddLink(t, app.me.name)
     setText(''); setReply(null)
     stick.current = true
     area.current?.focus()
@@ -282,7 +283,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
         <input ref={fileInput} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         <button className="ico" aria-label="Dosya ekle" title="Dosya ekle" onClick={() => fileInput.current?.click()}><Icon n="clip" /></button>
         <button className="ico" aria-label="Anket kur" title="Anket kur" onClick={() => setPolling(true)}><Icon n="poll" /></button>
-        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} için yaz` : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
+        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} için yaz` : ch === 'ses' ? 'Odaya yaz ya da YouTube linki yapıştır' : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
           onChange={e => {
             setText(e.target.value)
             if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); s.sendTyping(ch) }

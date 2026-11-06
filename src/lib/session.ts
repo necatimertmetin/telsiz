@@ -2,6 +2,7 @@ import {getRelaySockets, joinRoom, selfId} from 'trystero'
 import {canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
 import {openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
+import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
 import {lowLatencySdp, randomId} from './util'
 import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
 
@@ -66,7 +67,7 @@ export class Session {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth' | 'tv', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
@@ -79,6 +80,8 @@ export class Session {
   private inbox: Promise<unknown> = Promise.resolve()
   private outbox: Promise<unknown> = Promise.resolve()
   private fileCh = new Map<string, string>()
+  tv: TvState = TV_EMPTY
+  private tvSubs = new Set<() => void>()
 
   constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[], private identity: Promise<Identity>) {
     this.view = materialize([], fallbackTitle)
@@ -93,10 +96,17 @@ export class Session {
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'),
     }
     this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.whenAuthed(peerId, () => this.gotHello(p, peerId))
     this.a.auth.onMessage = (d: {uid: string; pk: string; sig: string}, {peerId}: {peerId: string}) => void this.gotAuth(d, peerId)
+    this.a.tv.onMessage = (d: unknown, {peerId}: {peerId: string}) => {
+      if (!this.authed.has(peerId) || !validTv(d) || !tvNewer(d.rev, this.tv.rev)) return
+      // Konum gönderim anına ait: yolda geçen süre eklenir, saat farkı işe karışmaz.
+      const late = d.playing ? (this.stats.get(peerId)?.rtt ?? 0) / 2000 : 0
+      this.tv = {...d, pos: d.pos + late, at: performance.now()}
+      this.tvChanged()
+    }
     this.a.prof.onMessage = (d: {uid: string} & Profile, {peerId}: {peerId: string}) => {
       if (!d || d.uid !== this.authed.get(peerId)) return
       const color = typeof d.color === 'string' && /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : undefined
@@ -189,6 +199,7 @@ export class Session {
     this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}, {target: peerId})
     this.announce()
     this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
+    if (this.tv.rev[0]) this.a.tv.send(this.tvWire(), {target: peerId})
     for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
     this.retryWanted()
     this.hooks.changed()
@@ -250,6 +261,31 @@ export class Session {
     for (const p of this.peers.values())
       for (const o of p.others ?? []) if (!direct.has(o.uid) && !out.has(o.uid)) out.set(o.uid, {...o, via: p.name})
     return out
+  }
+
+  private tvWire() { const {at: _, ...w} = this.tv; return {...w, pos: tvPos(this.tv, performance.now())} }
+  private tvChanged() { for (const f of this.tvSubs) f(); this.hooks.changed() }
+  onTv(f: () => void) { this.tvSubs.add(f); return () => { this.tvSubs.delete(f) } }
+
+  tvDo(act: TvAction) {
+    const next = tvApply(this.tv, act, this.me.uid, performance.now())
+    if (!next) return
+    this.tv = next
+    this.a.tv.send(this.tvWire())
+    this.tvChanged()
+  }
+
+  // Link sırada hemen görünür, başlık gelince güncellenir.
+  tvAddLink(text: string, by: string) {
+    const id = ytId(text)
+    if (!id) return false
+    const k = randomId()
+    this.tvDo({a: 'add', item: {k, id, title: 'YouTube videosu', by: by.slice(0, 40)}})
+    void fetch(`https://noembed.com/embed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + id)}`)
+      .then(r => r.json())
+      .then((d: {title?: string}) => { if (d.title) this.tvDo({a: 'retitle', k, title: d.title.slice(0, 200)}) })
+      .catch(() => {})
+    return true
   }
 
   sendSfx(id: string) { this.a.sfx.send(id) }

@@ -62,15 +62,19 @@ export class Call {
     })
   }
 
-  async join(withCam = false) {
+  async join(withCam = false, muted = false) {
     if (this.s.voice.in) return
     const mic = await this.micStream()
     this.raw = mic.getAudioTracks()[0]
     this.send = this.raw.clone()
     this.send.contentHint = 'speech'
+    this.send.enabled = !muted
     this.streams.mic = new MediaStream([this.send])
     this.ctx = new AudioContext({latencyHint: 'interactive'})
-    await this.ctx.resume().catch(() => {})
+    // Linkten gelen henüz sayfaya dokunmamış olabilir: tarayıcı sesi ilk dokunuşa kadar bekletir, görüşme bekletmez.
+    const ctx = this.ctx
+    await Promise.race([ctx.resume().catch(() => {}), new Promise(r => setTimeout(r, 400))])
+    addEventListener('pointerdown', () => void ctx.resume().catch(() => {}), {once: true})
     const an = this.ctx.createAnalyser()
     an.fftSize = 512
     this.ctx.createMediaStreamSource(new MediaStream([this.raw])).connect(an)
@@ -78,7 +82,7 @@ export class Call {
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
     this.tuner = setInterval(() => { void this.tune(); this.sync() }, 3000)
-    this.s.voice = {in: true, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
+    this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false}
     this.s.announce()
     void callStarted()
     this.wake = await navigator.wakeLock?.request('screen').catch(() => null)

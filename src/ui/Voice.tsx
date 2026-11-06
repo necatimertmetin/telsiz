@@ -4,8 +4,10 @@ import {SCREEN_Q, type Call, type ScreenQ} from '../lib/call'
 import {canShareScreen, desktop, isAndroidApp, setSpeaker, speakerOn} from '../lib/native'
 import type {Session} from '../lib/session'
 import {SFX} from '../lib/sfx'
-import {Avatar} from './App'
+import {Avatar, PUBLIC_URL} from './App'
+import {Chat} from './Chat'
 import {Icon} from './Icon'
+import {TvPlayer, TvQueue} from './Watch'
 
 function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted: boolean; mirror?: boolean; volume?: number}) {
   const r = useRef<HTMLVideoElement>(null)
@@ -149,6 +151,8 @@ function ScreenMenu({call}: {call: Call}) {
 
 export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const [focus, setFocus] = useState<string | null>(null)
+  const [side, setSide] = useState(() => innerWidth > 1000)
+  const [tab, setTab] = useState<'chat' | 'list'>('chat')
   const v = s.voice
   const others = [...s.peers].filter(([, p]) => p.voice.in)
 
@@ -196,7 +200,9 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   }
 
   return (
+    <div className="room">
     <div className="stage">
+      <TvPlayer s={s} />
       {focused && <div className="focus"><TileView t={focused} big onClick={() => setFocus(null)} /></div>}
       <div className={'grid n' + Math.min(rest.length, 6) + (focused ? ' strip' : '')}>
         {rest.map(t => <TileView key={t.key} t={t} big={false} onClick={() => setFocus(t.key)} />)}
@@ -222,11 +228,24 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
             <ScreenMenu call={call} />
           </div>
         )}
+        <button className="cbtn" aria-label="Sese davet linki" title="Sese davet linkini kopyala" onClick={() => void navigator.clipboard.writeText(`${PUBLIC_URL}#/katil/${s.code}/ses`).then(() => app.showToast('Link kopyalandı, tıklayan direkt sese gelir')).catch(() => app.showToast('Kopyalanamadı'))}><Icon n="link" /></button>
+        <button className={'cbtn' + (side ? ' act' : '')} aria-label="Oda sohbeti" title="Oda sohbeti ve video listesi" onClick={() => setSide(!side)}><Icon n="chat" /></button>
         <SfxMenu />
         <button className={'cbtn' + (call.clip ? ' act' : '')} aria-label="Klip kaydı" title={call.clip ? 'Klip kaydı açık, kapat' : 'Klip kaydını aç'} onClick={() => call.toggleClip()}><Icon n="clipper" /></button>
         {call.clip && <button className="cbtn wide" aria-label="Son anı kaydet" title="Son 30-60 saniyeyi sohbete gönder" onClick={() => void app.saveClip()}>Kaydet</button>}
         <button className="cbtn leave" aria-label="Çık" title="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
       </div>
+    </div>
+    {side && (
+      <aside className="roomside" aria-label="Oda sohbeti">
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'chat'} className={tab === 'chat' ? 'on' : ''} onClick={() => setTab('chat')}>Sohbet</button>
+          <button role="tab" aria-selected={tab === 'list'} className={tab === 'list' ? 'on' : ''} onClick={() => setTab('list')}>Liste{s.tv.queue.length ? ` (${s.tv.queue.length})` : ''}</button>
+          <button className="ico sm sideclose" aria-label="Paneli kapat" onClick={() => setSide(false)}><Icon n="x" s={16} /></button>
+        </div>
+        {tab === 'chat' ? <Chat key={s.code + 'ses'} s={s} ch="ses" /> : <TvQueue s={s} />}
+      </aside>
+    )}
     </div>
   )
 }

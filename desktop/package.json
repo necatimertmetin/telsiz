@@ -1,7 +1,7 @@
 {
   "name": "telsiz-desktop",
   "productName": "Telsiz",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Telsiz masaüstü uygulaması",
   "author": "Mert Metin",
   "main": "main.cjs",
