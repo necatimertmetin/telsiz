@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.necatimertmetin.telsiz",
+  "appName": "Telsiz",
+  "webDir": "dist",
+  "server": {
+    "url": "https://necatimertmetin.github.io/telsiz/",
+    "errorPath": "offline.html"
+  }
+}

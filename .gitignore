@@ -1,0 +1,11 @@
+node_modules
+dist
+*.local
+.env*
+desktop/node_modules
+desktop/release
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+e2e/out
