@@ -7,7 +7,7 @@ export type Kind = 'mic' | 'cam' | 'screen'
 export type ScreenQ = '720p30' | '1080p30' | '1080p60' | '1440p60'
 const SCREEN_GAIN = 2.5
 
-export type AudioPrefs = {screenGain: number; micId: string; micLabel?: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
+export type AudioPrefs = {screenGain: number; micGain: number; outVol: number; micId: string; micLabel?: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
 export const SCREEN_Q: Record<ScreenQ, {w: number; h: number; f: number; b: number; label: string}> = {
   '720p30': {w: 1280, h: 720, f: 30, b: 2_000_000, label: '720p 30 fps'},
   '1080p30': {w: 1920, h: 1080, f: 30, b: 3_500_000, label: '1080p 30 fps'},
@@ -39,6 +39,7 @@ export class Call {
   private meters = new Map<string, {an: AnalyserNode; src: MediaStreamAudioSourceNode}>()
   private ctx?: AudioContext
   private virtualMic = false
+  private micChain?: {src: MediaStreamAudioSourceNode; gain: GainNode}
   screenStats = new Map<string, ScreenStat>() // izlenen yayında peerId, kendi yayınında 'me'
   private statBytes = new Map<string, number>()
   private screenRaw?: {raw: MediaStreamTrack; src: MediaStreamAudioSourceNode; gain: GainNode}
@@ -100,6 +101,7 @@ export class Call {
     an.fftSize = 512
     this.ctx.createMediaStreamSource(new MediaStream([this.raw])).connect(an)
     this.localAn = an
+    this.applyMicGain()
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
     this.tuner = setInterval(() => { void this.tune(); void this.sampleScreen(); this.sync() }, 3000)
@@ -116,6 +118,7 @@ export class Call {
     this.clip = undefined
     for (const k of ['screen', 'cam', 'mic'] as Kind[]) this.stopLocal(k)
     this.raw?.stop()
+    this.micChain = undefined
     clearInterval(this.timer); clearInterval(this.tuner)
     for (const id of [...this.remote.keys()]) this.dropPeer(id)
     for (const [uid, r] of this.relayed) this.dropRelayed(uid, r)
@@ -360,6 +363,7 @@ export class Call {
 
   applyAudio() {
     const {speakerId, screenGain} = this.prefs()
+    this.applyMicGain()
     if (this.screenRaw) this.screenRaw.gain.gain.value = SCREEN_GAIN * screenGain
     for (const [uid, r] of this.relayed) {
       r.el.muted = this.s.voice.deaf
@@ -384,7 +388,7 @@ export class Call {
   private tick() {
     const before = [...this.speaking].join()
     if (this.localAn && this.send) {
-      this.level = Math.min(100, this.rms(this.localAn) * 400)
+      this.level = Math.min(100, this.rms(this.localAn) * 400 * this.prefs().micGain)
       const now = Date.now()
       // Kapı: sessizlikte hiç paket gitmez, klavye ve oda sesi arkadaşına ulaşmaz.
       if (this.level >= this.prefs().gate) this.openUntil = now + 350
@@ -517,13 +521,41 @@ export class Call {
     if (!this.s.voice.in || !this.send) return
     const mic = await this.micStream()
     const raw = mic.getAudioTracks()[0]
-    const send = raw.clone()
-    send.contentHint = this.virtualMic ? 'music' : 'speech'
-    if (this.sent.mic.size) this.s.room.replaceTrack(this.send, send, {target: [...this.sent.mic]})
-    this.streams.mic!.removeTrack(this.send)
-    this.streams.mic!.addTrack(send)
-    this.send.stop(); this.raw?.stop()
-    this.send = send; this.raw = raw
+    this.micChain?.src.disconnect()
+    this.micChain = undefined
+    const send = this.prefs().micGain === 1 ? raw.clone() : this.gainedTrack(raw)
+    this.raw?.stop()
+    this.raw = raw
+    this.swapSend(send)
     if (this.ctx && this.localAn) this.ctx.createMediaStreamSource(new MediaStream([raw])).connect(this.localAn)
+  }
+
+  private swapSend(send: MediaStreamTrack) {
+    send.contentHint = this.virtualMic ? 'music' : 'speech'
+    if (this.sent.mic.size) this.s.room.replaceTrack(this.send!, send, {target: [...this.sent.mic]})
+    this.streams.mic!.removeTrack(this.send!)
+    this.streams.mic!.addTrack(send)
+    this.send!.stop()
+    this.send = send
+  }
+
+  // %100'de ses bu yola girmez: gecikme eklenmez, sayfa sesi askıdayken de mikrofon gider.
+  private gainedTrack(raw: MediaStreamTrack) {
+    const ctx = this.ctx!
+    const src = ctx.createMediaStreamSource(new MediaStream([raw]))
+    const gain = ctx.createGain()
+    const limit = ctx.createDynamicsCompressor()
+    const dest = ctx.createMediaStreamDestination()
+    gain.gain.value = this.prefs().micGain
+    limit.threshold.value = -3; limit.knee.value = 0; limit.ratio.value = 20; limit.attack.value = .002; limit.release.value = .15
+    src.connect(gain).connect(limit).connect(dest)
+    this.micChain = {src, gain}
+    return dest.stream.getAudioTracks()[0]
+  }
+
+  private applyMicGain() {
+    const v = this.prefs().micGain
+    if (this.micChain) this.micChain.gain.gain.value = v
+    else if (v !== 1 && this.ctx && this.raw && this.send) this.swapSend(this.gainedTrack(this.raw))
   }
 }

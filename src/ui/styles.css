@@ -135,7 +135,7 @@ video.mirror{transform:scaleX(-1)}
 .tileact input{width:80px;accent-color:var(--acc)}
 .stagehint{text-align:center;padding:0 16px 4px}
 .linkbtn{color:var(--acc);text-decoration:underline}
-.controls{display:flex;justify-content:center;gap:10px;padding:10px;padding-bottom:max(10px,env(safe-area-inset-bottom));flex-wrap:wrap;flex:none}
+.controls{position:relative;display:flex;justify-content:center;gap:10px;padding:10px;padding-bottom:max(10px,env(safe-area-inset-bottom));flex-wrap:wrap;flex:none}
 .cbtn{width:50px;height:50px;border-radius:50%;display:grid;place-items:center;background:var(--bg4)}
 .cbtn:hover{filter:brightness(1.2)}
 .cbtn.off{background:var(--tx);color:var(--bad)}
@@ -222,6 +222,20 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .caret{width:26px;height:50px;display:grid;place-items:center;color:var(--dim);border-radius:0 26px 26px 0;margin-left:-2px}
 .caret:hover,.caret[aria-expanded=true]{color:var(--tx)}
 .menuscrim{position:fixed;inset:0;z-index:15}
+.audpanel{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:16;box-sizing:border-box;width:min(624px,calc(100% - 32px));max-height:min(420px,calc(100dvh - 120px));overflow-y:auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));background:var(--bg2);border:1px solid var(--line);border-radius:16px}
+.audside{min-width:0;display:flex;flex-direction:column;gap:14px;padding:20px 14px 14px}
+.audside+.audside{border-left:1px solid var(--line)}
+.audlevel{display:flex;flex-direction:column;gap:6px;padding:0 10px}
+.audhead{display:flex;justify-content:space-between;align-items:baseline;font-weight:700;font-size:16px}
+.audhead span{color:var(--acc);font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.audlevel input{width:100%;height:24px;margin:0;padding:0;accent-color:var(--acc);cursor:pointer}
+.audlevel p{margin:0;font-size:13px;color:var(--dim)}
+.audlist{display:flex;flex-direction:column;gap:2px}
+.audlist p{margin:0;padding:0 10px}
+.audlist button{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:44px;padding:6px 10px;border-radius:9px;text-align:left;font-size:14.5px}
+.audlist .ell{white-space:normal;overflow-wrap:anywhere}
+.audlist button:hover{background:var(--bg3)}
+.audlist button.on{background:var(--bg4);color:var(--acc);font-weight:600}
 .devmenu{position:absolute;bottom:calc(100% + 8px);left:0;width:min(300px,calc(100vw - 32px));max-height:300px;overflow-y:auto;background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:6px;z-index:16}
 .devmenu h5{margin:4px 8px 6px;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
 .devmenu p{margin:4px 8px 8px}

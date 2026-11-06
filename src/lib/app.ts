@@ -51,7 +51,7 @@ class App {
   calls = new Map<string, Call>()
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
@@ -252,7 +252,7 @@ class App {
       toast: t => this.showToast(t),
     }, this.turnServers(), this.identity)
     this.sessions.set(g.code, s)
-    this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode, j => {
+    this.calls.set(g.code, new Call(s, () => this.prefs, uid => (this.volumes[uid] ?? 1) * this.prefs.outVol, this.bump, () => this.prefs.gameMode, j => {
       if (this.prefs.sounds) beep(j ? [[523, .07], [659, .09]] : [[659, .07], [440, .09]], .04)
     }, () => this.me.uid))
   }

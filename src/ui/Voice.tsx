@@ -33,7 +33,7 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
   return (
     <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '')} onClick={onClick}>
       {t.stream
-        ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={app.volumes[volKey] ?? 1} />
+        ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={(app.volumes[volKey] ?? 1) * app.prefs.outVol} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
       {stat && <div className="tilestat" role="status">{t.self ? 'En zayıf izleyici: ' : ''}{fmtScreenStat(stat)}</div>}
       <div className="tilebar">
@@ -64,15 +64,14 @@ type Opt = {id: string; label: string}
 const KIND = {mic: 'audioinput', spk: 'audiooutput', cam: 'videoinput'} as const
 const NAME = {mic: 'Mikrofon', spk: 'Ses çıkışı', cam: 'Kamera'}
 
-function DeviceMenu({what, call}: {what: keyof typeof KIND; call: Call}) {
-  const [open, setOpen] = useState(false)
-  const [opts, setOpts] = useState<Opt[]>([])
+function DeviceList({what, call, onPick}: {what: keyof typeof KIND; call: Call; onPick?: () => void}) {
+  const [opts, setOpts] = useState<Opt[] | null>(null)
   const [, redraw] = useState(0)
   const androidSpk = what === 'spk' && isAndroidApp()
   const canSink = 'setSinkId' in HTMLMediaElement.prototype
 
   useEffect(() => {
-    if (!open || androidSpk) return
+    if (androidSpk) return
     const load = () => navigator.mediaDevices.enumerateDevices().then(list => {
       const same = list.filter(d => d.kind === KIND[what] && d.deviceId !== 'default' && d.deviceId !== 'communications')
       setOpts(same.map((d, i) => ({id: d.deviceId, label: d.label || `${NAME[what]} ${i + 1}`})))
@@ -80,42 +79,76 @@ function DeviceMenu({what, call}: {what: keyof typeof KIND; call: Call}) {
     void load()
     navigator.mediaDevices.addEventListener('devicechange', load)
     return () => navigator.mediaDevices.removeEventListener('devicechange', load)
-  }, [open, what, androidSpk])
+  }, [what, androidSpk])
 
   const key = ({mic: 'micId', spk: 'speakerId', cam: 'camId'} as const)[what]
   const pick = (id: string) => {
     if (what === 'mic') void app.setMic(id).catch(() => app.showToast('Mikrofon değiştirilemedi'))
     else { app.prefs[key] = id; app.savePrefs() }
     if (what === 'cam') void call.changeCam().catch(() => app.showToast('Kamera değiştirilemedi'))
-    setOpen(false)
+    onPick?.()
   }
   const row = (id: string, label: string, on: boolean, click: () => void) => (
     <button key={id || 'def'} role="menuitemradio" aria-checked={on} className={on ? 'on' : ''} onClick={click}><span className="ell">{label}</span>{on && <Icon n="check" s={16} />}</button>
   )
-  const noPick = what === 'spk' && !androidSpk && (!canSink || opts.length === 0)
+  const speaker = (on: boolean) => { void setSpeaker(on); onPick?.(); redraw(x => x + 1) }
 
+  if (androidSpk) return <>
+    {row('sp', 'Hoparlör', speakerOn, () => speaker(true))}
+    {row('ear', 'Kulaklık / diyafon', !speakerOn, () => speaker(false))}
+  </>
+  if (what === 'spk' && (!canSink || opts?.length === 0))
+    return <p className="dim small">Bu tarayıcı ses çıkışını seçtirmiyor. Telefonda ses diyafondan geliyorsa Android uygulamasını kur. iPhone'da kamerayı açmak sesi hoparlöre alabilir.</p>
+  return <>
+    {row('', 'Varsayılan', !app.prefs[key], () => pick(''))}
+    {opts?.map(o => row(o.id, o.label, app.prefs[key] === o.id, () => pick(o.id)))}
+  </>
+}
+
+function CamMenu({call}: {call: Call}) {
+  const [open, setOpen] = useState(false)
   return (
     <>
-      <button className="caret" aria-label={`${NAME[what]} seç`} aria-expanded={open} title={`${NAME[what]} seç`} onClick={() => setOpen(!open)}><Icon n="chev" s={14} /></button>
+      <button className="caret" aria-label="Kamera seç" aria-expanded={open} title="Kamera seç" onClick={() => setOpen(!open)}><Icon n="chev" s={14} /></button>
       {open && <div className="menuscrim" onClick={() => setOpen(false)} />}
       {open && (
-        <div className="devmenu" role="menu" aria-label={NAME[what]}>
-          <h5>{NAME[what]}</h5>
-          {androidSpk ? (
-            <>
-              {row('sp', 'Hoparlör', speakerOn, () => { void setSpeaker(true); setOpen(false); redraw(x => x + 1) })}
-              {row('ear', 'Kulaklık / diyafon', !speakerOn, () => { void setSpeaker(false); setOpen(false); redraw(x => x + 1) })}
-            </>
-          ) : noPick ? (
-            <p className="dim small">Bu tarayıcı ses çıkışını seçtirmiyor. Telefonda ses diyafondan geliyorsa Android uygulamasını kur. iPhone'da kamerayı açmak sesi hoparlöre alabilir.</p>
-          ) : (
-            <>
-              {row('', 'Varsayılan', !app.prefs[key], () => pick(''))}
-              {opts.map(o => row(o.id, o.label, app.prefs[key] === o.id, () => pick(o.id)))}
-            </>
-          )}
+        <div className="devmenu" role="menu" aria-label="Kamera">
+          <h5>Kamera</h5>
+          <DeviceList what="cam" call={call} onPick={() => setOpen(false)} />
         </div>
       )}
+    </>
+  )
+}
+
+function AudioSide({what, call}: {what: 'mic' | 'spk'; call: Call}) {
+  const mic = what === 'mic'
+  const key = mic ? 'micGain' : 'outVol'
+  return (
+    <section className="audside">
+      <div className="audlevel">
+        <div className="audhead">
+          <label htmlFor={`vol-${what}`}>{mic ? 'Mikrofon' : 'Kulaklık'}</label>
+          <span>%{Math.round(app.prefs[key] * 100)}</span>
+        </div>
+        <input id={`vol-${what}`} type="range" min="0" max={mic ? 3 : 1} step="0.05" value={app.prefs[key]} aria-label={mic ? 'Mikrofon sesi' : 'Duyduğum ses'} onChange={e => { app.prefs[key] = +e.target.value; app.savePrefs() }} />
+        <p>{mic ? 'Arkadaşlarının seni duyduğu düzey' : 'Senin duyduğun düzey'}</p>
+      </div>
+      <div className="audlist" role="menu" aria-label={mic ? 'Mikrofon' : 'Ses çıkışı'}>
+        <DeviceList what={what} call={call} />
+      </div>
+    </section>
+  )
+}
+
+function AudioPanel({call, onClose}: {call: Call; onClose: () => void}) {
+  return (
+    <>
+      <div className="menuscrim" onClick={onClose} />
+      <div className="audpanel" role="dialog" aria-label="Ses ayarları">
+        <AudioSide what="mic" call={call} />
+        <AudioSide what="spk" call={call} />
+      </div>
     </>
   )
 }
@@ -166,6 +199,7 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const [focus, setFocus] = useState<string | null>(null)
   const [side, setSide] = useState(() => innerWidth > 1000)
   const [tab, setTab] = useState<'chat' | 'list'>('chat')
+  const [audioOpen, setAudioOpen] = useState(false)
   const v = s.voice
   const others = [...s.peers].filter(([, p]) => p.voice.in)
 
@@ -224,15 +258,15 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
       <div className="controls">
         <div className="cgroup">
           <button className={'cbtn' + (v.muted ? ' off' : '')} aria-label="Mikrofon" title="Mikrofon" onClick={() => call.toggleMute()}><Icon n={v.muted ? 'micOff' : 'mic'} /></button>
-          <DeviceMenu what="mic" call={call} />
+          <button className="caret" aria-label="Mikrofon seç" aria-expanded={audioOpen} title="Ses ayarları" onClick={() => setAudioOpen(!audioOpen)}><Icon n="chev" s={14} /></button>
         </div>
         <div className="cgroup">
           <button className={'cbtn' + (v.deaf ? ' off' : '')} aria-label="Kulaklık" title="Kulaklık" onClick={() => call.toggleDeaf()}><Icon n={v.deaf ? 'headOff' : 'head'} /></button>
-          <DeviceMenu what="spk" call={call} />
+          <button className="caret" aria-label="Ses çıkışı seç" aria-expanded={audioOpen} title="Ses ayarları" onClick={() => setAudioOpen(!audioOpen)}><Icon n="chev" s={14} /></button>
         </div>
         <div className="cgroup">
           <button className={'cbtn' + (v.cam ? ' act' : '')} aria-label="Kamera" title="Kamera" onClick={() => void call.toggleCam().catch(() => app.showToast('Kamera açılamadı'))}><Icon n={v.cam ? 'video' : 'videoOff'} /></button>
-          <DeviceMenu what="cam" call={call} />
+          <CamMenu call={call} />
         </div>
         {v.cam && navigator.maxTouchPoints > 0 && <button className="cbtn" aria-label="Kamerayı çevir" onClick={() => void call.flipCam()}><Icon n="flip" /></button>}
         {canShareScreen() && (
@@ -247,6 +281,7 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
         <button className={'cbtn' + (call.clip ? ' act' : '')} aria-label="Klip kaydı" title={call.clip ? 'Klip kaydı açık, kapat' : 'Klip kaydını aç'} onClick={() => call.toggleClip()}><Icon n="clipper" /></button>
         {call.clip && <button className="cbtn wide" aria-label="Son anı kaydet" title="Son 30-60 saniyeyi sohbete gönder" onClick={() => void app.saveClip()}>Kaydet</button>}
         <button className="cbtn leave" aria-label="Çık" title="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
+        {audioOpen && <AudioPanel call={call} onClose={() => setAudioOpen(false)} />}
       </div>
     </div>
     {side && (
