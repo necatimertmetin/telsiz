@@ -1,5 +1,6 @@
 const {app, BrowserWindow, Menu, Tray, desktopCapturer, globalShortcut, ipcMain, nativeImage, session, shell} = require('electron')
 const path = require('path')
+const fs = require('fs')
 
 // Canlı siteyi açar: düzeltmeler herkese yeniden kurulum gerekmeden ulaşır.
 const HOME = process.env.TELSIZ_URL || 'https://necatimertmetin.github.io/telsiz/'
@@ -13,6 +14,48 @@ app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 if (!app.requestSingleInstanceLock()) app.quit()
 
 let win, tray, quitting = false, picked = null, pickedAudio = false
+
+// Bas-konuş: tuş durumu sorgulanır. Klavye kancası ya da oyuna müdahale yok.
+let keyState = null
+try {
+  keyState = require('koffi').load('user32.dll').func('short __stdcall GetAsyncKeyState(int vKey)')
+} catch (e) {
+  console.log('ptt kullanılamıyor', e.message)
+}
+let pttTimer = null, pttDown = false
+function setPtt(vk) {
+  clearInterval(pttTimer)
+  pttDown = false
+  if (!vk || !keyState) return
+  pttTimer = setInterval(() => {
+    const down = (keyState(vk) & 0x8000) !== 0
+    if (down !== pttDown) { pttDown = down; win?.webContents.send('ptt', down) }
+  }, 25)
+}
+
+// Kurulu sürüm kendini günceller. Taşınabilir sürümün yerine yazılacak kurulumu yok.
+function setupUpdates() {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) return
+  const {autoUpdater} = require('electron-updater')
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('update-available', i => console.log('update-available', i.version))
+  autoUpdater.on('update-not-available', () => console.log('update-not-available'))
+  autoUpdater.on('error', e => console.log('update-error', e.message))
+  autoUpdater.on('update-downloaded', () => { console.log('update-downloaded'); win?.webContents.send('update-ready') })
+  ipcMain.on('install-update', () => { quitting = true; autoUpdater.quitAndInstall(true, true) })
+  const check = () => autoUpdater.checkForUpdates().catch(e => console.log('update-error', e.message))
+  check()
+  setInterval(check, 6 * 3600 * 1000)
+}
+
+// İlk tepsiye inişte söyle: pencere kapandı sanıp bir daha açmaya çalışmasın.
+function trayHint() {
+  const flag = path.join(app.getPath('userData'), 'tray-hint')
+  if (fs.existsSync(flag)) return
+  fs.writeFileSync(flag, '1')
+  tray?.displayBalloon({title: 'Telsiz çalışmaya devam ediyor', content: 'Saatin yanındaki simgeden açabilirsin. Çıkmak için simgeye sağ tıkla.'})
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -30,7 +73,7 @@ function createWindow() {
   })
   win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== ORIGIN) e.preventDefault() })
   // Çarpı tepsiye indirir: oyundayken görüşme yanlışlıkla kapanmasın.
-  win.on('close', e => { if (!quitting) { e.preventDefault(); win.hide() } })
+  win.on('close', e => { if (!quitting) { e.preventDefault(); win.hide(); trayHint() } })
 }
 
 app.whenReady().then(() => {
@@ -54,6 +97,7 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('pick', (_e, id, audio) => { picked = id; pickedAudio = !!audio })
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
+  ipcMain.on('ptt', (_e, vk) => setPtt(vk))
 
   createWindow()
 
@@ -63,10 +107,14 @@ app.whenReady().then(() => {
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'icon.png')).resize({width: 16, height: 16}))
   tray.setToolTip('Telsiz')
   tray.setContextMenu(Menu.buildFromTemplate([
-    {label: 'Aç', click: () => { win.show(); win.focus() }},
-    {label: 'Çıkış', click: () => { quitting = true; app.quit() }},
+    {label: 'Telsiz\'i aç', click: () => { win.show(); win.focus() }},
+    {label: 'Mikrofonu aç/kapat', click: () => win?.webContents.send('hotkey', 'mute')},
+    {label: 'Kulaklığı aç/kapat', click: () => win?.webContents.send('hotkey', 'deaf')},
+    {type: 'separator'},
+    {label: 'Kapat', click: () => { quitting = true; app.quit() }},
   ]))
   tray.on('click', () => { win.show(); win.focus() })
+  setupUpdates()
 })
 
 app.on('second-instance', () => { if (win) { win.show(); win.focus() } })

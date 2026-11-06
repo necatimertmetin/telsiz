@@ -2,8 +2,8 @@ import {useSyncExternalStore} from 'react'
 import {Session, type Me} from './session'
 import {Call, type AudioPrefs} from './call'
 import * as db from './db'
-import {desktop} from './native'
-import {newRoomCode, randomId} from './util'
+import {androidPlugin, desktop, isAndroidApp} from './native'
+import {decodeBackup, encodeBackup, isNewer, newRoomCode, randomId} from './util'
 import type {Ev} from './types'
 
 type GroupRef = {code: string; title: string}
@@ -43,12 +43,15 @@ class App {
   calls = new Map<string, Call>()
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V'})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
   ring: Ring | null = null
   toast = ''
+  search = ''
+  backupSaved = load<{v: boolean}>('backup', {v: false}).v
+  update: {label: string; run: () => void} | null = null
   sourcePicker: {id: string; name: string; thumb: string}[] | null = null
 
   private version = 0
@@ -58,15 +61,90 @@ class App {
 
   constructor() {
     if (!this.me.uid) this.me.uid = randomId()
+    // Tarayıcı yer açarken bu sitenin verisini silmesin diye kalıcı depolama istenir.
+    void navigator.storage?.persist?.().catch(() => {})
     if (this.me.name) this.start()
     desktop()?.onHotkey(k => {
       const c = this.liveCall()
       if (k === 'mute') c?.toggleMute(); else c?.toggleDeaf()
     })
     addEventListener('hashchange', () => this.readHash())
+    this.setupPtt()
+    desktop()?.onUpdate?.(() => {
+      this.update = {label: 'Güncelleme hazır, yeniden başlat', run: () => desktop()?.installUpdate?.()}
+      this.bump()
+    })
+    void this.checkShellUpdate()
     const seen = () => { this.markRead(); this.bump() }
     addEventListener('focus', seen)
     document.addEventListener('visibilitychange', seen)
+  }
+
+  backupCode() {
+    return encodeBackup({uid: this.me.uid, name: this.me.name, groups: this.groups.map(g => {
+      const s = this.sessions.get(g.code)
+      return {code: g.code, title: s?.view.title ?? g.title}
+    })})
+  }
+
+  markBackupSaved() { this.backupSaved = true; save('backup', {v: true}); this.bump() }
+
+  // Kimlik değiştiği için temiz başlangıç gerekir: bağlantılar yeni kimlikle yeniden kurulur.
+  importBackup(input: string): boolean {
+    const b = decodeBackup(input)
+    if (!b) return false
+    const have = new Set(b.groups.map(g => g.code))
+    save('me', {uid: b.uid, name: b.name})
+    save('groups', [...b.groups, ...this.groups.filter(g => !have.has(g.code))])
+    save('backup', {v: true})
+    location.reload()
+    return true
+  }
+
+  private setPttDown(d: boolean) {
+    const c = this.liveCall()
+    if (c) c.pttDown = d
+  }
+
+  applyPtt() { desktop()?.setPtt?.(this.prefs.ptt ? this.prefs.pttVk : 0) }
+
+  // Masaüstünde tuş oyun açıkken de yakalanır; web ve eski kabukta sadece pencere odaklıyken çalışır.
+  private setupPtt() {
+    const d = desktop()
+    if (d?.setPtt && d.onPtt) {
+      d.onPtt(x => this.setPttDown(x))
+      this.applyPtt()
+      return
+    }
+    const typing = (t: EventTarget | null) => t instanceof HTMLElement && /INPUT|TEXTAREA|SELECT/.test(t.tagName)
+    const key = (down: boolean) => (e: KeyboardEvent) => { if (this.prefs.ptt && e.keyCode === this.prefs.pttVk && !typing(e.target)) this.setPttDown(down) }
+    addEventListener('keydown', key(true))
+    addEventListener('keyup', key(false))
+    addEventListener('blur', () => this.setPttDown(false))
+  }
+
+  // Android kurulum için kullanıcıdan tek onay ister, sessiz kurulum bu kanalda mümkün değil.
+  private async checkShellUpdate() {
+    const d = desktop(), p = androidPlugin()
+    if (!(isAndroidApp() && p) && !d) return
+    const base = 'https://github.com/necatimertmetin/telsiz/releases/latest/download'
+    const page = () => window.open('https://github.com/necatimertmetin/telsiz/releases/latest', '_blank')
+    if (d) {
+      if (!d.onUpdate) this.update = {label: 'Yeni sürüm var, otomatik güncelleme için bir kez kur', run: page}
+      return this.bump()
+    }
+    if (!p!.appVersion) { this.update = {label: 'Yeni sürüm var, bir kez elle kur', run: page}; return this.bump() }
+    try {
+      const [{version}, rel] = await Promise.all([p!.appVersion(), fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json())])
+      if (rel?.tag_name && isNewer(rel.tag_name, version)) {
+        this.update = {label: `Yeni sürüm ${rel.tag_name}: güncelle`, run: () => {
+          this.update = null
+          this.showToast('İndiriliyor, kurulum ekranı açılacak')
+          void p!.installUpdate?.({url: `${base}/Telsiz.apk`}).catch(() => this.showToast('Güncelleme indirilemedi'))
+        }}
+        this.bump()
+      }
+    } catch { /* internet yoksa sonraki açılışta bakılır */ }
   }
 
   subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f) } }
@@ -102,7 +180,9 @@ class App {
       getGameMode: () => this.prefs.gameMode,
     }, this.turnServers())
     this.sessions.set(g.code, s)
-    this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode))
+    this.calls.set(g.code, new Call(s, () => this.prefs, uid => this.volumes[uid] ?? 1, this.bump, () => this.prefs.gameMode, j => {
+      if (this.prefs.sounds) beep(j ? [[523, .07], [659, .09]] : [[659, .07], [440, .09]], .04)
+    }))
   }
 
   get session() { return this.active ? this.sessions.get(this.active) ?? null : null }
@@ -145,7 +225,7 @@ class App {
     this.bump()
   }
 
-  go(r: Route) { this.route = r; this.markRead(); this.bump() }
+  go(r: Route) { this.route = r; this.search = ''; this.markRead(); this.bump() }
 
   markRead() {
     if (this.route.kind !== 'text' || !this.active || document.hidden) return

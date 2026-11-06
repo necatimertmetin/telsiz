@@ -1,7 +1,7 @@
 {
   "name": "telsiz-desktop",
   "productName": "Telsiz",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Telsiz masaüstü uygulaması",
   "author": "Mert Metin",
   "main": "main.cjs",
@@ -21,6 +21,13 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "necatimertmetin",
+        "repo": "telsiz"
+      }
+    ],
     "win": {
       "target": [
         "nsis",
@@ -31,14 +38,18 @@
     },
     "nsis": {
       "oneClick": true,
-      "artifactName": "Telsiz-Kurulum-${version}.${ext}"
+      "artifactName": "Telsiz-Kurulum.${ext}"
     },
     "portable": {
-      "artifactName": "Telsiz-Tasinabilir-${version}.${ext}"
+      "artifactName": "Telsiz-Tasinabilir.${ext}"
     }
   },
   "devDependencies": {
     "electron": "^45.2.3",
     "electron-builder": "^26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11",
+    "koffi": "^3.3.7"
   }
 }

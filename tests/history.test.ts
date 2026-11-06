@@ -67,3 +67,11 @@ describe('private chats', () => {
     expect(validEvent({...b('2', 2), t: 'edit', target: '1', text: 'y', ch})).toBe(true)
   })
 })
+
+describe('pins', () => {
+  it('pins and unpins, last state wins', () => {
+    const p = (id: string, ts: number, on: boolean): Ev => ({...b(id, ts), t: 'pin', target: '1', on})
+    expect(materialize([msg('1', 1), p('2', 2, true)]).byId.get('1')?.pinned).toBe(true)
+    expect(materialize([msg('1', 1), p('2', 2, true), p('3', 3, false)]).byId.get('1')?.pinned).toBe(false)
+  })
+})

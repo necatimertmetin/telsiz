@@ -1,13 +1,14 @@
 import {useEffect, useRef, useState} from 'react'
 import {app} from '../lib/app'
-import type {Call} from '../lib/call'
+import {SCREEN_Q, type Call, type ScreenQ} from '../lib/call'
 import {canShareScreen, desktop, isAndroidApp, setSpeaker, speakerOn} from '../lib/native'
 import type {Session} from '../lib/session'
 import {Avatar} from './App'
 import {Icon} from './Icon'
 
-function Video({stream, muted, mirror}: {stream: MediaStream; muted: boolean; mirror?: boolean}) {
+function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted: boolean; mirror?: boolean; volume?: number}) {
   const r = useRef<HTMLVideoElement>(null)
+  useEffect(() => { if (r.current) r.current.volume = volume }, [volume])
   useEffect(() => {
     if (r.current && r.current.srcObject !== stream) r.current.srcObject = stream
     void r.current?.play().catch(() => {})
@@ -20,19 +21,22 @@ type Tile = {key: string; uid: string; name: string; peerId?: string; stream?: M
 function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void}) {
   const r = useRef<HTMLDivElement>(null)
   const deafened = app.liveSession()?.voice.deaf
+  const hasAudio = !!t.screen && !!t.stream && t.stream.getAudioTracks().length > 0
+  const volKey = t.screen ? 's:' + t.uid : t.uid
   return (
     <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '')} onClick={onClick}>
       {t.stream
-        ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} />
+        ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={app.volumes[volKey] ?? 1} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
       <div className="tilebar">
-        {t.muted && <Icon n="micOff" s={15} />}{t.deaf && <Icon n="headOff" s={15} />}{t.screen && <Icon n="screen" s={15} />}
+        {t.muted && <Icon n="micOff" s={15} />}{t.deaf && <Icon n="headOff" s={15} />}{t.screen && <Icon n="screen" s={15} />}{hasAudio && <span className="saudio" title={t.self ? 'Ekranının sesi yayında' : 'Ekran sesi geliyor'}><Icon n="speaker" s={15} /></span>}
         <span className="ell">{t.name}{t.self ? ' (sen)' : ''}</span>
       </div>
       <div className="tileact" onClick={e => e.stopPropagation()}>
-        {t.peerId && !t.screen && (
-          <input type="range" min="0" max="1" step="0.05" value={app.volumes[t.uid] ?? 1} aria-label={`${t.name} ses düzeyi`} onChange={e => app.setVolume(t.uid, +e.target.value)} />
+        {t.peerId && (!t.screen || hasAudio) && (
+          <input type="range" min="0" max="1" step="0.05" value={app.volumes[volKey] ?? 1} aria-label={`${t.name} ses düzeyi`} onChange={e => app.setVolume(volKey, +e.target.value)} />
         )}
+        {t.stream && document.pictureInPictureEnabled && <button className="ico sm" aria-label="Küçük pencerede izle" title="Küçük pencerede izle" onClick={() => void r.current?.querySelector('video')?.requestPictureInPicture().catch(() => {})}><Icon n="pip" s={16} /></button>}
         {t.stream && <button className="ico sm" aria-label="Tam ekran" onClick={() => void r.current?.requestFullscreen?.()}><Icon n="full" s={16} /></button>}
       </div>
     </div>
@@ -94,6 +98,33 @@ function DeviceMenu({what, call}: {what: keyof typeof KIND; call: Call}) {
               {opts.map(o => row(o.id, o.label, app.prefs[key] === o.id, () => pick(o.id)))}
             </>
           )}
+        </div>
+      )}
+    </>
+  )
+}
+
+function ScreenMenu({call}: {call: Call}) {
+  const [open, setOpen] = useState(false)
+  const pick = (q: ScreenQ) => {
+    app.prefs.screenQ = q
+    app.savePrefs()
+    void call.changeScreenQuality().catch(() => {})
+    setOpen(false)
+  }
+  return (
+    <>
+      <button className="caret" aria-label="Yayın kalitesi seç" aria-expanded={open} title="Yayın kalitesi" onClick={() => setOpen(!open)}><Icon n="chev" s={14} /></button>
+      {open && <div className="menuscrim" onClick={() => setOpen(false)} />}
+      {open && (
+        <div className="devmenu" role="menu" aria-label="Yayın kalitesi">
+          <h5>Yayın kalitesi</h5>
+          {(Object.keys(SCREEN_Q) as ScreenQ[]).map(q => (
+            <button key={q} role="menuitemradio" aria-checked={app.prefs.screenQ === q} className={app.prefs.screenQ === q ? 'on' : ''} onClick={() => pick(q)}>
+              <span className="ell">{SCREEN_Q[q].label}</span><span className="dim small">{SCREEN_Q[q].b / 1e6} Mb/sn</span>
+            </button>
+          ))}
+          <p className="dim small">Yükleme hızın izleyen kişi başına bu kadar gider. Oyun modunda yayın kısılır.</p>
         </div>
       )}
     </>
@@ -167,7 +198,12 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
           <DeviceMenu what="cam" call={call} />
         </div>
         {v.cam && navigator.maxTouchPoints > 0 && <button className="cbtn" aria-label="Kamerayı çevir" onClick={() => void call.flipCam()}><Icon n="flip" /></button>}
-        {canShareScreen() && <button className={'cbtn' + (v.screen ? ' act' : '')} aria-label="Ekran paylaş" title="Ekran paylaş" onClick={() => void shareScreen()}><Icon n="screen" /></button>}
+        {canShareScreen() && (
+          <div className="cgroup">
+            <button className={'cbtn' + (v.screen ? ' act' : '')} aria-label="Ekran paylaş" title="Ekran paylaş" onClick={() => void shareScreen()}><Icon n="screen" /></button>
+            <ScreenMenu call={call} />
+          </div>
+        )}
         <button className="cbtn leave" aria-label="Çık" title="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
       </div>
     </div>

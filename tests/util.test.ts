@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {fmtDay, fmtSize, linkify, lowLatencySdp, newRoomCode, parseInvite, previewKind} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, parseInvite, previewKind} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -48,5 +48,31 @@ describe('lowLatencySdp', () => {
     const out = lowLatencySdp(sdp)
     expect(out).toContain('useinbandfec=1\r\na=ptime:10\r\na=rtpmap')
     expect(lowLatencySdp(out)).toBe(out)
+  })
+})
+describe('isNewer', () => {
+  it('compares versions numerically', () => {
+    expect(isNewer('v1.10.0', '1.9.0')).toBe(true)
+    expect(isNewer('v1.1.0', '1.1.0')).toBe(false)
+    expect(isNewer('1.0.9', '1.1')).toBe(false)
+  })
+})
+describe('mentions', () => {
+  it('finds a name or everyone, ignoring Turkish case', () => {
+    expect(mentions('@Elif gel', 'elif')).toBe(true)
+    expect(mentions('@herkes maç', 'Mert')).toBe(true)
+    expect(mentions('selam', 'Mert')).toBe(false)
+  })
+})
+describe('backup code', () => {
+  const b = {uid: 'abcd2345efgh6789', name: 'Şükrü', groups: [{code: 'abcd-efgh-jkmn-pqrs', title: 'Hafta Sonu ÇS'}]}
+  it('round-trips Turkish text and survives surrounding text', () => {
+    expect(decodeBackup(encodeBackup(b))).toEqual(b)
+    expect(decodeBackup(`kodum: ${encodeBackup(b)} \n`)).toEqual(b)
+  })
+  it('rejects junk and drops bad group codes', () => {
+    expect(decodeBackup('selam')).toBeNull()
+    expect(decodeBackup('telsiz1.@@@')).toBeNull()
+    expect(decodeBackup(encodeBackup({...b, groups: [{code: 'x', title: 'y'}]}))?.groups).toEqual([])
   })
 })

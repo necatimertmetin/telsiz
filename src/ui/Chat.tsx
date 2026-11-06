@@ -4,7 +4,7 @@ import {dmPartner, isDm, MAX_TEXT} from '../lib/history'
 import {saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
 import type {FileMeta, Msg} from '../lib/types'
-import {colorFor, fmtDay, fmtSize, fmtTime, isImageUrl, linkify, previewKind} from '../lib/util'
+import {colorFor, fmtDay, fmtSize, fmtTime, isImageUrl, linkify, mentions, previewKind} from '../lib/util'
 import {Avatar} from './App'
 import {Icon} from './Icon'
 
@@ -130,7 +130,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
     setEditing(false)
   }
   return (
-    <div className={'msg' + (head ? ' head' : '') + (sel ? ' sel' : '')} onClick={e => {
+    <div id={'m-' + m.id} className={'msg' + (head ? ' head' : '') + (sel ? ' sel' : '') + (m.uid !== app.me.uid && mentions(m.text, app.me.name) ? ' mention' : '') + (m.pinned ? ' pinned' : '')} onClick={e => {
       // Dokunmatik ekranda hover yok: araçlar mesaja dokununca açılır.
       if (matchMedia('(hover: none)').matches && !(e.target as HTMLElement).closest('a,button,video,audio,textarea')) setSel(!sel)
     }}>
@@ -156,6 +156,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
         {picker && <div className="picker">{EMOJI.map(e => <button key={e} onClick={() => react(e)}>{e}</button>)}</div>}
         <button className="ico sm" aria-label="Tepki" onClick={() => setPicker(!picker)}><Icon n="smile" s={16} /></button>
         <button className="ico sm" aria-label="Yanıtla" onClick={onReply}><Icon n="reply" s={16} /></button>
+        <button className="ico sm" aria-label={m.pinned ? 'Sabiti kaldır' : 'Sabitle'} title={m.pinned ? 'Sabiti kaldır' : 'Sabitle'} onClick={() => s.emit({t: 'pin', target: m.id, on: !m.pinned} as never)}><Icon n="pin" s={16} /></button>
         {own && m.text && <button className="ico sm" aria-label="Düzenle" onClick={() => { setDraft(m.text); setEditing(true) }}><Icon n="edit" s={16} /></button>}
         {own && <button className="ico sm" aria-label="Sil" onClick={() => { if (confirm('Bu mesaj herkesten silinsin mi?')) s.emit({t: 'del', target: m.id} as never) }}><Icon n="trash" s={16} /></button>}
       </div>
@@ -164,7 +165,10 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
 }
 
 export function Chat({s, ch}: {s: Session; ch: string}) {
-  const msgs = s.view.msgs.get(ch) ?? []
+  const all = s.view.msgs.get(ch) ?? []
+  const q = app.search.trim().toLocaleLowerCase('tr-TR')
+  const msgs = q ? all.filter(m => (m.text + ' ' + (m.file?.name ?? '') + ' ' + m.name).toLocaleLowerCase('tr-TR').includes(q)) : all
+  const pins = all.filter(m => m.pinned)
   const [text, setText] = useState('')
   const [reply, setReply] = useState<Msg | null>(null)
   const [drag, setDrag] = useState(false)
@@ -182,7 +186,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
     .map(([u]) => s.view.people.get(u) ?? [...s.peers.values()].find(p => p.uid === u)?.name ?? 'Biri')
 
   useLayoutEffect(() => { if (stick.current && box.current) box.current.scrollTop = box.current.scrollHeight })
-  useEffect(() => { app.markRead() }, [msgs.length])
+  useEffect(() => { app.markRead() }, [all.length])
 
   const send = () => {
     const t = text.trim()
@@ -212,8 +216,14 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
 
   return (
     <div className="chat" onDragOver={e => { e.preventDefault(); setDrag(true) }} onDragLeave={e => { if (e.currentTarget === e.target) setDrag(false) }} onDrop={onDrop}>
+      {pins.length > 0 && !q && (
+        <button className="pinbar" onClick={() => document.getElementById('m-' + pins.at(-1)!.id)?.scrollIntoView({block: 'center'})}>
+          <Icon n="pin" s={15} /><span className="ell"><b>{pins.at(-1)!.name}:</b> {pins.at(-1)!.text || pins.at(-1)!.file?.name}</span>{pins.length > 1 && <span className="dim small">+{pins.length - 1}</span>}
+        </button>
+      )}
       <div className="log" ref={box} onScroll={e => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}>
-        {msgs.length === 0 && <div className="empty"><h3>{dm ? '@' : '#'} {chTitle}</h3><p className="dim">{dm ? 'Bu sohbet sadece ikinizin cihazında durur, gruptaki diğerlerine gitmez.' : 'Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.'}</p></div>}
+        {q && msgs.length === 0 && <div className="empty"><p className="dim">Sonuç yok.</p></div>}
+        {!q && msgs.length === 0 && <div className="empty"><h3>{dm ? '@' : '#'} {chTitle}</h3><p className="dim">{dm ? 'Bu sohbet sadece ikinizin cihazında durur, gruptaki diğerlerine gitmez.' : 'Henüz mesaj yok. İlkini sen yaz, dosya sürükle ya da yapıştır.'}</p></div>}
         {msgs.map((m, i) => {
           const p = msgs[i - 1]
           const newDay = !p || new Date(p.ts).toDateString() !== new Date(m.ts).toDateString()

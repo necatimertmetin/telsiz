@@ -28,6 +28,9 @@ const P: Record<string, string> = {
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   file: 'M6 3h8l5 5v13H6zM14 3v5h5',
   chev: 'M6 15l6-6 6 6',
+  search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',
+  pin: 'M9 3h6l-1 6 4 4H6l4-4zM12 13v8',
+  pip: 'M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 12h7v6h-7z',
   check: 'M5 13l4 4L19 7',
 }
 

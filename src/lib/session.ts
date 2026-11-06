@@ -40,7 +40,7 @@ export class Session {
   readonly stats = new Map<string, {rtt?: number; relayed?: boolean}>()
   view: View
   linkError = ''
-  voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false}
+  voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
   onPeerLeft?: (peerId: string) => void
   onPresence?: () => void
 

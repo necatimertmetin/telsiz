@@ -66,7 +66,7 @@ await waitFor(async () => (await c.page.evaluate(() => window.telsiz.session.vie
 
 await b.page.getByRole('textbox', {name: 'Mesaj'}).fill('naber')
 await b.page.keyboard.press('Enter')
-await waitFor(() => a.page.getByText('naber').isVisible(), 5000, 'canlı mesaj gelmedi') && pass('canlı mesaj geldi')
+await waitFor(() => a.page.locator('.txt', {hasText: 'naber'}).isVisible(), 5000, 'canlı mesaj gelmedi') && pass('canlı mesaj geldi')
 
 // Dördüncü kişi: anlık bağlanır, küçük resim ve büyük dosya
 await d.page.getByLabel('Davet linki ya da kod').fill(code)
@@ -116,6 +116,29 @@ await b.page.evaluate(ch => window.telsiz.go({kind: 'text', ch}), dmCh)
 await waitFor(() => a.page.getByText('Görüldü: Ali').isVisible(), 5000, 'görüldü bilgisi gelmedi') && pass('görüldü bilgisi geldi')
 await a.page.evaluate(() => window.telsiz.go({kind: 'text', ch: 'genel'}))
 await b.page.evaluate(() => window.telsiz.go({kind: 'text', ch: 'genel'}))
+
+// Yedek kodu: yeni profil aynı kimlik ve grupla dönüyor, geçmiş arkadaştan iniyor
+const backup = await b.page.evaluate(() => window.telsiz.backupCode())
+const bUid = await b.page.evaluate(() => window.telsiz.me.uid)
+const rctx = await browser.newContext({viewport: {width: 1280, height: 800}})
+const rp = await rctx.newPage()
+await rp.goto(URL)
+await rp.getByRole('button', {name: /yedek kodum var/}).click()
+await rp.getByLabel('Yedek kodu').fill(backup)
+await rp.getByRole('button', {name: 'Geri yükle'}).click()
+await waitFor(() => rp.getByText('ilk mesaj, herkes gelmeden').isVisible().catch(() => false), 30000, 'yedekten dönen geçmişi alamadı') && pass('yedek kodu yeni cihazda kimliği, grubu ve geçmişi geri getirdi')
+check(await rp.evaluate(() => window.telsiz.me.uid) === bUid, 'kimlik aynı kaldı')
+check(await waitFor(() => rp.evaluate(() => [...window.telsiz.session.view.byId.values()].some(m => m.text === 'bu sadece sana')), 8000, 'özel sohbet yedekle dönmedi'), 'özel sohbet de geri geldi')
+await rctx.close()
+
+// Arama ve sabitleme
+await a.page.getByRole('button', {name: 'Ara', exact: true}).click()
+await a.page.getByLabel('Mesajlarda ara').fill('naber')
+await new Promise(r => setTimeout(r, 200))
+check(await a.page.locator('.msg').count() === 1, 'arama tek sonucu buldu')
+await a.page.getByRole('button', {name: 'Ara', exact: true}).click()
+await a.page.evaluate(() => { const s = window.telsiz.session; s.emit({t: 'pin', target: [...s.view.byId.values()].find(m => m.text === 'naber').id, on: true}) })
+await waitFor(() => b.page.locator('.pinbar').isVisible(), 5000, 'sabit mesaj gelmedi') && pass('sabit mesaj herkese göründü')
 
 // Ses ve görüntü
 await a.page.getByRole('button', {name: 'Telsiz odası'}).click()
@@ -185,7 +208,7 @@ await waitFor(async () => (await remotes(a)).mic === 2, 6000, 'çıkan kişi dü
 // Çevrimdışıyken yazılan mesaj: sayfa yenilenince geçmiş korunur
 await c.page.reload()
 await c.page.getByRole('button', {name: /genel/}).click()
-await waitFor(() => c.page.getByText('naber').isVisible(), 8000, 'yenilemede geçmiş gitti') && pass('yenileme sonrası geçmiş duruyor')
+await waitFor(() => c.page.locator('.txt', {hasText: 'naber'}).isVisible(), 8000, 'yenilemede geçmiş gitti') && pass('yenileme sonrası geçmiş duruyor')
 
 // Mobil görünüm
 const m = await browser.newContext({viewport: {width: 375, height: 760}, hasTouch: true, isMobile: true})
@@ -194,7 +217,7 @@ await p.goto(URL + `#/katil/${code}`)
 await p.getByLabel('Takma adın').fill('Telefon')
 await p.getByRole('button', {name: 'Devam'}).click()
 await waitFor(() => p.evaluate(() => (window.telsiz.session?.peers.size ?? 0) >= 2), 45000, 'mobil davet linkiyle giremedi') && pass('davet linkiyle mobil girdi')
-await waitFor(() => p.getByText('naber').isVisible(), 8000, 'mobil geçmiş yok')
+await waitFor(() => p.locator('.txt', {hasText: 'naber'}).isVisible(), 8000, 'mobil geçmiş yok')
 check(await p.evaluate(() => document.documentElement.scrollWidth === innerWidth), 'mobilde yatay taşma yok')
 await p.screenshot({path: 'e2e/out/mobile-chat.png'})
 await p.getByRole('textbox', {name: 'Mesaj'}).fill('silinecek mesaj')

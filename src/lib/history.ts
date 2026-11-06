@@ -33,6 +33,7 @@ export function validEvent(e: unknown): e is Ev {
     case 'edit': return optCh(x.ch) && str(x.target, 64) && str(x.text, MAX_TEXT)
     case 'del': return optCh(x.ch) && str(x.target, 64)
     case 'react': return optCh(x.ch) && str(x.target, 64) && str(x.emoji, 16) && typeof x.on === 'boolean'
+    case 'pin': return optCh(x.ch) && str(x.target, 64) && typeof x.on === 'boolean'
     case 'chan': return str(x.chId, 64) && str(x.title, 40)
     case 'group': return str(x.title, 40)
     default: return false
@@ -51,7 +52,7 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
   for (const e of sorted) {
     people.set(e.uid, e.name)
     if (e.t === 'msg') {
-      if (!byId.has(e.id)) byId.set(e.id, {id: e.id, ch: e.ch, uid: e.uid, name: e.name, ts: e.ts, text: e.text, file: e.file, re: e.re, edited: false, reacts: {}})
+      if (!byId.has(e.id)) byId.set(e.id, {id: e.id, ch: e.ch, uid: e.uid, name: e.name, ts: e.ts, text: e.text, file: e.file, re: e.re, edited: false, pinned: false, reacts: {}})
     } else if (e.t === 'edit') {
       const m = byId.get(e.target)
       if (m && m.uid === e.uid) { m.text = e.text; m.edited = true }
@@ -64,6 +65,9 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
       const set = new Set(m.reacts[e.emoji] ?? [])
       if (e.on) set.add(e.uid); else set.delete(e.uid)
       if (set.size) m.reacts[e.emoji] = [...set]; else delete m.reacts[e.emoji]
+    } else if (e.t === 'pin') {
+      const m = byId.get(e.target)
+      if (m) m.pinned = e.on
     } else if (e.t === 'chan') {
       chans.set(e.chId, {id: e.chId, title: e.title})
     } else if (e.t === 'group') {

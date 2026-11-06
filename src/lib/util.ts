@@ -71,3 +71,39 @@ export function lowLatencySdp(sdp: string): string {
 }
 
 export const isImageUrl = (url: string) => /^https:\/\/[^\s]+\.(gif|png|jpe?g|webp)(\?[^\s]*)?$/i.test(url)
+
+// '1.2.0' > '1.1.9'; başındaki v ve eksik parçalar sorun değil.
+export function isNewer(latest: string, current: string): boolean {
+  const n = (v: string) => v.replace(/^v/, '').split('.').map(x => parseInt(x) || 0)
+  const [a, b] = [n(latest), n(current)]
+  for (let i = 0; i < 3; i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0)
+  return false
+}
+
+export function mentions(text: string, name: string): boolean {
+  const t = text.toLocaleLowerCase('tr-TR')
+  return t.includes('@herkes') || (!!name && t.includes('@' + name.toLocaleLowerCase('tr-TR')))
+}
+
+export type Backup = {uid: string; name: string; groups: {code: string; title: string}[]}
+
+// Yedek kodu kimliği ve grup anahtarlarını taşır: hesap yerine geçer, şifre gibi saklanmalı.
+export function encodeBackup(b: Backup): string {
+  const bytes = new TextEncoder().encode(JSON.stringify(b))
+  let bin = ''
+  for (const x of bytes) bin += String.fromCharCode(x)
+  return 'telsiz1.' + btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+export function decodeBackup(input: string): Backup | null {
+  const m = input.trim().match(/telsiz1\.([A-Za-z0-9_-]+)/)
+  if (!m) return null
+  try {
+    const bin = atob(m[1].replace(/-/g, '+').replace(/_/g, '/'))
+    const b = JSON.parse(new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)))) as Backup
+    const code = /^[a-z2-9]{4}(-[a-z2-9]{4}){3}$/
+    if (typeof b.uid !== 'string' || !/^[a-z2-9]{8,64}$/.test(b.uid) || typeof b.name !== 'string' || !b.name.trim() || !Array.isArray(b.groups)) return null
+    const groups = b.groups.filter(g => g && typeof g.code === 'string' && code.test(g.code)).map(g => ({code: g.code, title: String(g.title ?? 'Grup').slice(0, 40)}))
+    return {uid: b.uid, name: b.name.slice(0, 32), groups}
+  } catch { return null }
+}

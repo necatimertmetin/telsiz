@@ -18,6 +18,8 @@ export function Avatar({uid, name, on, s = 34}: {uid: string; name: string; on?:
 
 function NameStep() {
   const [v, setV] = useState('')
+  const [restore, setRestore] = useState(false)
+  const [code, setCode] = useState('')
   const submit = (e: FormEvent) => { e.preventDefault(); if (v.trim()) app.setName(v) }
   return (
     <div className="center">
@@ -27,6 +29,13 @@ function NameStep() {
         <p className="dim">Hesap yok, şifre yok. Arkadaşların seni tanısın diye bir isim yaz, yeter.</p>
         <input autoFocus maxLength={32} placeholder="Takma adın" value={v} onChange={e => setV(e.target.value)} aria-label="Takma adın" />
         <button className="btn pri" disabled={!v.trim()}>Devam</button>
+        {restore ? (
+          <>
+            <input placeholder="Yedek kodunu yapıştır" value={code} onChange={e => setCode(e.target.value)} aria-label="Yedek kodu" />
+            <button type="button" className="btn" disabled={!code.trim()} onClick={() => { if (!app.importBackup(code)) app.showToast('Yedek kodu geçersiz') }}>Geri yükle</button>
+          </>
+        ) : <button type="button" className="linkbtn" onClick={() => setRestore(true)}>Daha önce kullandım, yedek kodum var</button>}
+        {app.toast && <p className="dim small">{app.toast}</p>}
       </form>
     </div>
   )
@@ -159,7 +168,7 @@ function Side({s, onInvite, onSettings, onNavigate}: {s: Session; onInvite: () =
           <div key={u.id} className="vuser">
             <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
             <span className="ell">{u.name}</span>
-            {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}
+            {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}{u.v.sAudio && <span title="Ekran sesi yayında" className="saudio"><Icon n="speaker" s={14} /></span>}
           </div>
         ))}
         <div className="onlymobile"><Members s={s} onOpen={onNavigate} /></div>
@@ -235,6 +244,9 @@ export function App() {
   useApp()
   const [modal, setModal] = useState<'add' | 'invite' | 'settings' | null>(null)
   const [drawer, setDrawer] = useState(false)
+  const [searching, setSearching] = useState(false)
+  const unread = [...app.sessions.values()].reduce((n, x) => n + app.unreadGroup(x), 0)
+  useEffect(() => { document.title = unread ? `(${unread}) Telsiz` : 'Telsiz' }, [unread])
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawer(false) }
     addEventListener('keydown', onKey)
@@ -269,11 +281,16 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <button className="ico onlymobile" aria-label="Menü" onClick={() => setDrawer(true)}><Icon n="menu" /></button>
-          <strong className="ell grow">{title}</strong>
+          {searching && app.route.kind === 'text'
+            ? <input className="searchbox grow" autoFocus placeholder="Mesajlarda ara" value={app.search} aria-label="Mesajlarda ara" onChange={e => { app.search = e.target.value; app.bump() }} onKeyDown={e => { if (e.key === 'Escape') { setSearching(false); app.search = ''; app.bump() } }} />
+            : <strong className="ell grow">{title}</strong>}
+          {app.route.kind === 'text' && <button className="ico" title="Ara" aria-label="Ara" onClick={() => { setSearching(!searching); app.search = ''; app.bump() }}><Icon n={searching ? 'x' : 'search'} /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Sesli katıl" aria-label="Sesli katıl" onClick={() => void app.joinVoice()}><Icon n="wave" /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Görüntülü katıl" aria-label="Görüntülü katıl" onClick={() => void app.joinVoice(true)}><Icon n="video" /></button>}
           <button className="ico" title="Davet et" aria-label="Davet et" onClick={() => setModal('invite')}><Icon n="link" /></button>
         </header>
+        {!app.backupSaved && <button className="backupbar" onClick={() => setModal('settings')}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
+        {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
         {alone && (
           <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
         )}

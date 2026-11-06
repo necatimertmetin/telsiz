@@ -14,6 +14,7 @@ import android.provider.MediaStore;
 import android.util.Base64;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -21,6 +22,8 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.URL;
 import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
@@ -54,6 +57,37 @@ public class TelsizPlugin extends Plugin {
         } else {
             am.setSpeakerphoneOn(on);
         }
+    }
+
+    @PluginMethod
+    public void appVersion(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("version", BuildConfig.VERSION_NAME);
+        call.resolve(r);
+    }
+
+    // APK indirilir, Android kurulum ekranı açılır. Son onayı sistem ister.
+    @PluginMethod
+    public void installUpdate(PluginCall call) {
+        String url = call.getString("url");
+        if (url == null) { call.reject("Adres yok"); return; }
+        new Thread(() -> {
+            try {
+                File apk = new File(getContext().getCacheDir(), "telsiz-update.apk");
+                try (InputStream in = new URL(url).openStream(); OutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[64 * 1024];
+                    for (int n; (n = in.read(buf)) > 0; ) out.write(buf, 0, n);
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent i = new Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, "application/vnd.android.package-archive")
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("Güncelleme indirilemedi", e);
+            }
+        }).start();
     }
 
     @PluginMethod

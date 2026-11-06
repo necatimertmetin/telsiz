@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react'
 import {app} from '../lib/app'
-import {desktop} from '../lib/native'
+import {desktop, saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
 import {Modal} from './Modal'
 
@@ -11,6 +11,17 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
   const [title, setTitle] = useState(s.view.title)
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([])
   const [turn, setTurn] = useState(app.turn.raw)
+  const [listening, setListening] = useState(false)
+  const [restore, setRestore] = useState('')
+  useEffect(() => {
+    if (!listening) return
+    const done = (vk: number, label: string) => { p.pttVk = vk; p.pttLabel = label; app.savePrefs(); app.applyPtt(); setListening(false) }
+    const key = (e: KeyboardEvent) => { e.preventDefault(); e.stopPropagation(); done(e.keyCode, e.key.length === 1 ? e.key.toLocaleUpperCase('tr-TR') : e.code) }
+    const mouse = (e: MouseEvent) => { if (e.button === 3 || e.button === 4) { e.preventDefault(); done(e.button === 3 ? 5 : 6, `Fare ${e.button + 1}`) } }
+    addEventListener('keydown', key, true)
+    addEventListener('mousedown', mouse, true)
+    return () => { removeEventListener('keydown', key, true); removeEventListener('mousedown', mouse, true) }
+  })
   const p = app.prefs
   useEffect(() => { navigator.mediaDevices?.enumerateDevices().then(setDevices).catch(() => {}) }, [])
 
@@ -37,6 +48,21 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <input maxLength={40} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { const t = title.trim(); if (t && t !== s.view.title) s.emit({t: 'group', title: t} as never) }} />
       </label>
 
+      <h4>Yedek kodu</h4>
+      <p className="dim small">Hesap yok, kimliğin ve grupların bu cihazda duruyor. Bu kodu sakla: başka cihazda ya da veriler silinince yapıştırıp aynı isim ve gruplarla dönersin, eski mesajlar arkadaşlarından iner. Kodu alan gruplarına girer, kimseyle paylaşma.</p>
+      <code className="code small">{app.backupCode()}</code>
+      <div className="row wrap">
+        <button className="btn pri" onClick={async () => {
+          try { await navigator.clipboard.writeText(app.backupCode()); app.markBackupSaved(); app.showToast('Yedek kodu kopyalandı') } catch { app.showToast('Kopyalanamadı, kodu elle seç') }
+        }}>Kopyala</button>
+        <button className="btn" onClick={() => { void saveBlob(new Blob([app.backupCode()], {type: 'text/plain'}), 'telsiz-yedek.txt', 'text/plain').then(n => { app.markBackupSaved(); if (n) app.showToast(n) }) }}>Dosya olarak indir</button>
+      </div>
+      <details>
+        <summary>Başka cihazdan geri yükle</summary>
+        <input placeholder="Yedek kodunu yapıştır" value={restore} onChange={e => setRestore(e.target.value)} aria-label="Yedek kodu" />
+        <button className="btn" disabled={!restore.trim()} onClick={() => { if (!app.importBackup(restore)) app.showToast('Yedek kodu geçersiz') }}>Geri yükle</button>
+      </details>
+
       <h4>Ses ve görüntü</h4>
       {pick('audioinput', 'Mikrofon', p.micId, v => { p.micId = v; app.savePrefs(); void live?.changeMic() })}
       {pick('audiooutput', 'Hoparlör', p.speakerId, v => { p.speakerId = v; app.savePrefs() })}
@@ -49,6 +75,13 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
       <label className="check"><input type="checkbox" checked={p.noise} onChange={e => { p.noise = e.target.checked; app.savePrefs(); void live?.changeMic() }} /> Gürültü engelleme</label>
       <label className="check"><input type="checkbox" checked={p.gameMode} onChange={e => { p.gameMode = e.target.checked; app.savePrefs() }} /> Oyun modu: oyunun pingi için kamera ve dosya yüklemesi kısılır, otomatik indirme kapanır</label>
       <label className="check"><input type="checkbox" checked={p.sounds} onChange={e => { p.sounds = e.target.checked; app.savePrefs() }} /> Bildirim sesleri</label>
+      <label className="check"><input type="checkbox" checked={p.ptt} onChange={e => { p.ptt = e.target.checked; app.savePrefs(); app.applyPtt() }} /> Bas-konuş: sadece tuşa basılıyken ses gitsin</label>
+      {p.ptt && (
+        <div className="row">
+          <button className="btn" onClick={() => setListening(true)}>{listening ? 'Bir tuşa bas…' : `Tuş: ${p.pttLabel}`}</button>
+          <span className="dim small">{desktop()?.setPtt ? 'Oyun açıkken de çalışır. Fare yan tuşları da olur.' : 'Tarayıcıda sadece pencere açıkken çalışır. Oyunda için Windows uygulamasını kullan.'}</span>
+        </div>
+      )}
       {desktop() && <p className="dim small">Oyundayken: Ctrl+Shift+M mikrofon, Ctrl+Shift+D kulaklık.</p>}
 
       {!desktop() && !window.Capacitor && (

@@ -6,12 +6,18 @@ type TelsizPlugin = {
   fileOpen(o: {name: string; type: string}): Promise<{handle: string}>
   fileWrite(o: {handle: string; b64: string}): Promise<void>
   fileClose(o: {handle: string}): Promise<void>
+  appVersion?(): Promise<{version: string}>
+  installUpdate?(o: {url: string}): Promise<void>
 }
 export type DesktopBridge = {
   onHotkey(cb: (k: 'mute' | 'deaf') => void): void
   listSources(): Promise<{id: string; name: string; thumb: string}[]>
   pickSource(id: string | null, audio: boolean): Promise<void>
   flash(): void
+  setPtt?(vk: number): void
+  onPtt?(cb: (down: boolean) => void): void
+  onUpdate?(cb: () => void): void
+  installUpdate?(): void
 }
 declare global {
   interface Window {
@@ -21,6 +27,7 @@ declare global {
 }
 
 export const desktop = () => window.telsizDesktop
+export const androidPlugin = () => window.Capacitor?.Plugins?.Telsiz
 const plugin = () => window.Capacitor?.Plugins?.Telsiz
 export const isAndroidApp = () => window.Capacitor?.getPlatform?.() === 'android'
 export const canShareScreen = () => !isAndroidApp() && !!navigator.mediaDevices?.getDisplayMedia

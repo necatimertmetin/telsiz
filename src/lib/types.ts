@@ -6,16 +6,17 @@ export type Ev = Base & (
   | {t: 'edit'; target: string; text: string; ch?: string}
   | {t: 'del'; target: string; ch?: string}
   | {t: 'react'; target: string; emoji: string; on: boolean; ch?: string}
+  | {t: 'pin'; target: string; on: boolean; ch?: string}
   | {t: 'chan'; chId: string; title: string}
   | {t: 'group'; title: string}
 )
 
 export type Msg = {
   id: string; ch: string; uid: string; name: string; ts: number; text: string
-  file?: FileMeta; re?: string; edited: boolean; reacts: Record<string, string[]>
+  file?: FileMeta; re?: string; edited: boolean; pinned: boolean; reacts: Record<string, string[]>
 }
 export type Channel = {id: string; title: string}
 export type View = {title: string; channels: Channel[]; msgs: Map<string, Msg[]>; byId: Map<string, Msg>; people: Map<string, string>}
 
-export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean}
+export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean; sAudio?: boolean}
 export type Presence = {uid: string; name: string; voice: VoiceState}

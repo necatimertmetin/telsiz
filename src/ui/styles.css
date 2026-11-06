@@ -158,6 +158,14 @@ summary{cursor:pointer;color:var(--dim)}
 .sources img{width:100%;border-radius:6px;background:#000}
 .ring{position:fixed;top:12px;left:50%;transform:translateX(-50%);width:min(460px,calc(100% - 24px));display:flex;align-items:center;gap:10px;background:var(--bg4);border:1px solid var(--acc);border-radius:10px;padding:8px 10px;z-index:30}
 .toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:7px 14px;border-radius:8px;font-weight:600;z-index:40;white-space:nowrap}
+.backupbar{background:var(--bg2);color:var(--acc);padding:6px 12px;font-size:14px;border-bottom:1px solid var(--line)}
+.code.small{font-size:12.5px;max-height:90px;overflow-y:auto;text-align:left;word-break:break-all}
+.saudio{display:inline-flex;color:var(--acc)}
+.searchbox{height:36px;margin-right:4px}
+.updatebar{display:flex;align-items:center;justify-content:center;gap:6px;background:var(--acc);color:var(--acc-ink);font-weight:600;padding:6px;font-size:14px}
+.pinbar{display:flex;align-items:center;gap:8px;padding:6px 16px;background:var(--bg2);border-bottom:1px solid var(--line);font-size:14px;text-align:left;flex:none}
+.msg.pinned{background:rgba(245,165,36,.05)}
+.msg.mention{background:rgba(245,165,36,.1);box-shadow:inset 2px 0 0 var(--acc)}
 .scrim{display:none}
 ::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:5px}

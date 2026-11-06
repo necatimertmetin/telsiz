@@ -2,10 +2,19 @@ import type {Session} from './session'
 import {callStarted, callStopped, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
-export type AudioPrefs = {micId: string; speakerId: string; camId: string; gate: number; noise: boolean}
+export type ScreenQ = '720p30' | '1080p30' | '1080p60' | '1440p60'
+export type AudioPrefs = {micId: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
+export const SCREEN_Q: Record<ScreenQ, {w: number; h: number; f: number; b: number; label: string}> = {
+  '720p30': {w: 1280, h: 720, f: 30, b: 2_000_000, label: '720p 30 fps'},
+  '1080p30': {w: 1920, h: 1080, f: 30, b: 3_500_000, label: '1080p 30 fps'},
+  '1080p60': {w: 1920, h: 1080, f: 60, b: 6_000_000, label: '1080p 60 fps'},
+  '1440p60': {w: 2560, h: 1440, f: 60, b: 10_000_000, label: '1440p 60 fps'},
+}
 
-const BITRATE: Record<Kind, number> = {mic: 48_000, cam: 700_000, screen: 2_500_000}
-const GAME_VIDEO = 200_000 // oyun modunda oyunun pingi öncelikli
+const BITRATE = {mic: 48_000, cam: 700_000}
+const SCREEN_AUDIO = 128_000
+const GAME_CAM = 200_000 // oyun modunda oyunun pingi öncelikli
+const GAME_SCREEN = 1_500_000
 
 // Herkes herkese doğrudan yollar. 4 kişide kimse için 3 akıştan fazla yükleme yoktur,
 // o yüzden kamera bilerek düşük çözünürlükte: oyun oynarken hattı doldurmasın.
@@ -13,6 +22,7 @@ export class Call {
   remote = new Map<string, Partial<Record<Kind, MediaStream>>>()
   speaking = new Set<string>() // peerId, kendisi için 'me'
   level = 0
+  pttDown = false
   facing: 'user' | 'environment' = 'user'
   streams: Partial<Record<Kind, MediaStream>> = {}
 
@@ -25,10 +35,11 @@ export class Call {
   private localAn?: AnalyserNode
   private timer?: ReturnType<typeof setInterval>
   private tuner?: ReturnType<typeof setInterval>
+  private known?: Set<string>
   private openUntil = 0
   private wake?: WakeLockSentinel | null
 
-  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void, private gameMode: () => boolean) {
+  constructor(private s: Session, private prefs: () => AudioPrefs, private vol: (uid: string) => number, private changed: () => void, private gameMode: () => boolean, private roster: (joined: boolean) => void) {
     s.room.onPeerStream = (stream: MediaStream, peerId: string, meta?: {kind?: Kind}) => this.gotStream(stream, peerId, meta?.kind ?? 'mic')
     s.onPeerLeft = id => this.dropPeer(id)
     s.onPresence = () => this.sync()
@@ -57,7 +68,7 @@ export class Call {
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
     this.tuner = setInterval(() => void this.tune(), 3000)
-    this.s.voice = {in: true, muted: false, deaf: false, cam: false, screen: false}
+    this.s.voice = {in: true, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
     this.s.announce()
     void callStarted()
     this.wake = await navigator.wakeLock?.request('screen').catch(() => null)
@@ -74,7 +85,8 @@ export class Call {
     this.ctx = undefined
     this.speaking.clear()
     this.level = 0
-    this.s.voice = {in: false, muted: false, deaf: false, cam: false, screen: false}
+    this.known = undefined
+    this.s.voice = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
     this.s.announce()
     void callStopped()
     void this.wake?.release().catch(() => {})
@@ -101,6 +113,11 @@ export class Call {
       return
     }
     const inVoice = new Set(this.voicePeers())
+    if (this.known) {
+      if ([...inVoice].some(id => !this.known!.has(id))) this.roster(true)
+      else if ([...this.known].some(id => !inVoice.has(id))) this.roster(false)
+    }
+    this.known = inVoice
     for (const id of [...this.remote.keys()]) if (!inVoice.has(id)) this.dropPeer(id)
     for (const k of ['mic', 'cam', 'screen'] as Kind[]) {
       const st = this.streams[k]
@@ -138,10 +155,16 @@ export class Call {
         const p = sender.getParameters()
         const e = p.encodings?.[0]
         if (!e) continue
-        const rate = game && k !== 'mic' ? GAME_VIDEO : BITRATE[k]
-        const pri = k === 'mic' ? 'high' : 'low'
-        if (e.maxBitrate === rate && e.networkPriority === pri) continue
+        const q = SCREEN_Q[this.prefs().screenQ]
+        const audio = sender.track!.kind === 'audio'
+        const rate = k === 'mic' ? BITRATE.mic
+          : k === 'cam' ? (game ? GAME_CAM : BITRATE.cam)
+          : audio ? SCREEN_AUDIO : game ? Math.min(GAME_SCREEN, q.b) : q.b
+        const pri = k === 'mic' ? 'high' : k === 'screen' ? 'medium' : 'low'
+        const fps = k === 'screen' && !audio ? q.f : undefined
+        if (e.maxBitrate === rate && e.networkPriority === pri && e.maxFramerate === fps) continue
         e.maxBitrate = rate
+        if (fps) e.maxFramerate = fps
         e.priority = pri
         e.networkPriority = pri
         await sender.setParameters(p).catch(() => {})
@@ -209,7 +232,7 @@ export class Call {
       const now = Date.now()
       // Kapı: sessizlikte hiç paket gitmez, klavye ve oda sesi arkadaşına ulaşmaz.
       if (this.level >= this.prefs().gate) this.openUntil = now + 350
-      const open = now < this.openUntil
+      const open = this.prefs().ptt ? this.pttDown : now < this.openUntil
       this.send.enabled = !this.s.voice.muted && open
       if (this.send.enabled && this.level > 3) this.speaking.add('me'); else this.speaking.delete('me')
     }
@@ -280,21 +303,34 @@ export class Call {
     if (this.streams.screen) {
       this.stopLocal('screen')
       this.s.voice.screen = false
+      this.s.voice.sAudio = false
       this.s.announce()
       return
     }
+    const q = SCREEN_Q[this.prefs().screenQ]
     // restrictOwnAudio: bu sekmedeki görüşme sesi yayına girmesin, arkadaşların kendini duymasın.
     const st = await navigator.mediaDevices.getDisplayMedia({
-      video: {frameRate: {ideal: 30}},
+      video: {frameRate: {ideal: q.f, max: q.f}, width: {ideal: q.w, max: q.w}, height: {ideal: q.h, max: q.h}},
       audio: withAudio ? {echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true} as MediaTrackConstraints : false,
       systemAudio: 'include',
     } as DisplayMediaStreamOptions)
     st.getAudioTracks().forEach(t => { t.contentHint = 'music' })
-    st.getVideoTracks()[0].contentHint = 'detail'
+    // 60 fps'te akıcılık, 30 fps'te yazı netliği öncelikli.
+    st.getVideoTracks()[0].contentHint = q.f >= 60 ? 'motion' : 'detail'
     st.getVideoTracks()[0].onended = () => { if (this.streams.screen === st) void this.toggleScreen() }
     this.streams.screen = st
     this.s.voice.screen = true
+    this.s.voice.sAudio = st.getAudioTracks().length > 0
     this.s.announce()
+  }
+
+  async changeScreenQuality() {
+    const t = this.streams.screen?.getVideoTracks()[0]
+    if (!t) return
+    const q = SCREEN_Q[this.prefs().screenQ]
+    t.contentHint = q.f >= 60 ? 'motion' : 'detail'
+    await t.applyConstraints({frameRate: {ideal: q.f, max: q.f}, width: {ideal: q.w, max: q.w}, height: {ideal: q.h, max: q.h}})
+    await this.tune()
   }
 
   async changeMic() {
