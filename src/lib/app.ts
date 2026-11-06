@@ -326,6 +326,15 @@ class App {
     this.bump()
   }
 
+  // Çıkan cihaz seçimden silinmez: takılınca kaldığı yerden devam eder.
+  async setMic(id: string) {
+    const list = await navigator.mediaDevices.enumerateDevices().catch(() => [])
+    this.prefs.micId = id
+    this.prefs.micLabel = id ? list.find(d => d.kind === 'audioinput' && d.deviceId === id)?.label ?? '' : ''
+    this.savePrefs()
+    await this.liveCall()?.changeMic()
+  }
+
   savePrefs() { save('prefs', this.prefs); for (const c of this.calls.values()) c.applyAudio(); this.bump() }
   setVolume(uid: string, v: number) { this.volumes[uid] = v; save('vol', this.volumes); for (const c of this.calls.values()) c.applyAudio(); this.bump() }
   saveTurn(raw: string) { this.turn = {raw}; save('turn', this.turn); this.bump() }

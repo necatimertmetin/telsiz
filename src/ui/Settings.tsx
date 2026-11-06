@@ -52,6 +52,13 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
     )
   }
   const live = app.liveCall()
+  // Seviye çubuğu sadece kişi konuşmaya başlayınca değil, sürekli güncellensin.
+  const [, redraw] = useState(0)
+  useEffect(() => {
+    if (!live) return
+    const t = setInterval(() => redraw(x => x + 1), 150)
+    return () => clearInterval(t)
+  }, [live])
 
   return (
     <Modal title="Ayarlar" onClose={onClose}>
@@ -93,7 +100,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
       </details>
 
       <h4>Ses ve görüntü</h4>
-      {pick('audioinput', 'Mikrofon', p.micId, v => { p.micId = v; app.savePrefs(); void live?.changeMic() })}
+      {pick('audioinput', 'Mikrofon', p.micId, v => { void app.setMic(v) })}
       {pick('audiooutput', 'Hoparlör', p.speakerId, v => { p.speakerId = v; app.savePrefs() })}
       {pick('videoinput', 'Kamera', p.camId, v => { p.camId = v; app.savePrefs() })}
       <label className="field">Ses eşiği: {p.gate === 0 ? 'kapalı' : p.gate}

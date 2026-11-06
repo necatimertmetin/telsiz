@@ -85,6 +85,9 @@ export function worstStat(list: ScreenStat[]): ScreenStat | undefined {
   return [...list].sort((a, b) => a.h - b.h || a.fps - b.fps)[0]
 }
 
+// Sanal kablodan gelen şey mikrofon değil müzik ve efekt: konuşma işleme onu kısıyor.
+export const isVirtualMic = (label: string) => /\b(cable|vb-audio|voicemeeter|vaio)\b/i.test(label)
+
 export function lowLatencySdp(sdp: string): string {
   return sdp.replace(/(a=fmtp:\d+ minptime=10[^\r\n]*\r?\n)(?!a=ptime)/g, '$1a=ptime:10\r\n')
 }

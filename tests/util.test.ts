@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, worstStat} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, isVirtualMic, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, worstStat} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -66,6 +66,15 @@ describe('fmtScreenStat', () => {
     const a = {w: 1920, h: 1080, fps: 60, mbps: 6}, b = {w: 1920, h: 1080, fps: 20, mbps: 2}, c = {w: 1280, h: 720, fps: 60, mbps: 4}
     expect(worstStat([a, b, c])).toBe(c)
     expect(worstStat([a, b])).toBe(b)
+  })
+})
+
+describe('isVirtualMic', () => {
+  it('sanal kabloyu tanır, gerçek mikrofonu karıştırmaz', () => {
+    expect(isVirtualMic('CABLE Output (VB-Audio Virtual Cable)')).toBe(true)
+    expect(isVirtualMic('Default - Voicemeeter Out B1')).toBe(true)
+    expect(isVirtualMic('Mikrofon (HyperX Cloud II)')).toBe(false)
+    expect(isVirtualMic('Microphone (USB Cable Audio)')).toBe(true)
   })
 })
 

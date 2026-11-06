@@ -1,13 +1,13 @@
 import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
-import {worstStat, type ScreenStat} from './util'
+import {isVirtualMic, worstStat, type ScreenStat} from './util'
 import {callStarted, callStopped, pickScreenCodec, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
 export type ScreenQ = '720p30' | '1080p30' | '1080p60' | '1440p60'
 const SCREEN_GAIN = 2.5
 
-export type AudioPrefs = {screenGain: number; micId: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
+export type AudioPrefs = {screenGain: number; micId: string; micLabel?: string; speakerId: string; camId: string; gate: number; noise: boolean; ptt: boolean; screenQ: ScreenQ}
 export const SCREEN_Q: Record<ScreenQ, {w: number; h: number; f: number; b: number; label: string}> = {
   '720p30': {w: 1280, h: 720, f: 30, b: 2_000_000, label: '720p 30 fps'},
   '1080p30': {w: 1920, h: 1080, f: 30, b: 3_500_000, label: '1080p 30 fps'},
@@ -38,6 +38,7 @@ export class Call {
   private audios = new Map<string, HTMLAudioElement>()
   private meters = new Map<string, {an: AnalyserNode; src: MediaStreamAudioSourceNode}>()
   private ctx?: AudioContext
+  private virtualMic = false
   screenStats = new Map<string, ScreenStat>() // izlenen yayında peerId, kendi yayınında 'me'
   private statBytes = new Map<string, number>()
   private screenRaw?: {raw: MediaStreamTrack; src: MediaStreamAudioSourceNode; gain: GainNode}
@@ -63,8 +64,22 @@ export class Call {
 
   private async micStream() {
     const p = this.prefs()
-    return navigator.mediaDevices.getUserMedia({
-      audio: {deviceId: p.micId ? {ideal: p.micId} : undefined, echoCancellation: true, noiseSuppression: p.noise, autoGainControl: true, channelCount: 1, latency: {ideal: 0.01}} as MediaTrackConstraints,
+    const list = await navigator.mediaDevices.enumerateDevices().catch(() => [])
+    const inputs = list.filter(d => d.kind === 'audioinput')
+    // Cihaz kimliği değişebilir: seçim adından da bulunur, kullanıcı varsayılana düşmez.
+    const dev = inputs.find(d => d.deviceId === (p.micId || 'default')) ?? (p.micLabel ? inputs.find(d => d.label === p.micLabel) : undefined)
+    if (p.micId && dev?.label) p.micLabel = dev.label
+    const micId = p.micId && (dev?.deviceId ?? p.micId)
+    // Ölçüm: gürültü engelleme müzik benzeri sesi üçte birine indiriyor.
+    this.virtualMic = isVirtualMic(dev?.label ?? '')
+    const talk = !this.virtualMic
+    const audio = {echoCancellation: talk, noiseSuppression: talk && p.noise, autoGainControl: talk, channelCount: 1, latency: {ideal: 0.01}} as MediaTrackConstraints
+    if (!micId) return navigator.mediaDevices.getUserMedia({audio})
+    // 'ideal' seçimi yok sayıp varsayılan mikrofonu açıyor. Cihaz çıkarılmışsa varsayılana dönülür.
+    return navigator.mediaDevices.getUserMedia({audio: {...audio, deviceId: {exact: micId}}}).catch(e => {
+      if ((e as Error).name !== 'OverconstrainedError' && (e as Error).name !== 'NotFoundError') throw e
+      this.virtualMic = false
+      return navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: p.noise, autoGainControl: true, channelCount: 1}})
     })
   }
 
@@ -73,7 +88,7 @@ export class Call {
     const mic = await this.micStream()
     this.raw = mic.getAudioTracks()[0]
     this.send = this.raw.clone()
-    this.send.contentHint = 'speech'
+    this.send.contentHint = this.virtualMic ? 'music' : 'speech'
     this.send.enabled = !muted
     this.streams.mic = new MediaStream([this.send])
     this.ctx = new AudioContext({latencyHint: 'interactive'})
@@ -503,7 +518,7 @@ export class Call {
     const mic = await this.micStream()
     const raw = mic.getAudioTracks()[0]
     const send = raw.clone()
-    send.contentHint = 'speech'
+    send.contentHint = this.virtualMic ? 'music' : 'speech'
     if (this.sent.mic.size) this.s.room.replaceTrack(this.send, send, {target: [...this.sent.mic]})
     this.streams.mic!.removeTrack(this.send)
     this.streams.mic!.addTrack(send)

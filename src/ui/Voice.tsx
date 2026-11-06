@@ -84,9 +84,8 @@ function DeviceMenu({what, call}: {what: keyof typeof KIND; call: Call}) {
 
   const key = ({mic: 'micId', spk: 'speakerId', cam: 'camId'} as const)[what]
   const pick = (id: string) => {
-    app.prefs[key] = id
-    app.savePrefs()
-    if (what === 'mic') void call.changeMic().catch(() => app.showToast('Mikrofon değiştirilemedi'))
+    if (what === 'mic') void app.setMic(id).catch(() => app.showToast('Mikrofon değiştirilemedi'))
+    else { app.prefs[key] = id; app.savePrefs() }
     if (what === 'cam') void call.changeCam().catch(() => app.showToast('Kamera değiştirilemedi'))
     setOpen(false)
   }
