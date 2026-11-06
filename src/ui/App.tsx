@@ -189,7 +189,7 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate}: {s: Session; onI
         })}
         <div className="sect">Ses</div>
         <button className={'chan' + (app.route.kind === 'voice' ? ' on' : '')} onClick={() => { app.go({kind: 'voice'}); onNavigate() }}>
-          <Icon n="wave" s={17} /><span className="ell">Telsiz odası</span>{inVoice.length > 0 && <span className="count">{inVoice.length}</span>}
+          <Icon n="wave" s={17} /><span className="ell">Telsiz odası</span>{app.unread(s, 'ses') > 0 && <span className="badge in">{app.unread(s, 'ses')}</span>}{inVoice.length > 0 && <span className="count">{inVoice.length}</span>}
         </button>
         {inVoice.map(u => (
           <div key={u.id} className="vuser">

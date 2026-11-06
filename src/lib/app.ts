@@ -51,6 +51,7 @@ class App {
   calls = new Map<string, Call>()
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
+  roomChatOpen = false
   prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
@@ -301,11 +302,13 @@ class App {
   go(r: Route) { this.route = r; this.search = ''; this.markRead(); this.bump() }
 
   markRead() {
-    if (this.route.kind !== 'text' || !this.active || away()) return
-    this.lastRead[`${this.active}:${this.route.ch}`] = Date.now()
+    const ch = this.route.kind === 'text' ? this.route.ch : this.roomChatOpen ? 'ses' : ''
+    if (!ch || !this.active || away()) return
+    const last = this.session?.view.msgs.get(ch)?.at(-1)
+    // Karşının saati ileri olsa da açılan mesaj okunmuş sayılır.
+    this.lastRead[`${this.active}:${ch}`] = Math.max(Date.now(), last?.ts ?? 0)
     save('read', this.lastRead)
-    const last = this.session?.view.msgs.get(this.route.ch)?.at(-1)
-    if (last) this.session?.sendSeen(this.route.ch, last.ts)
+    if (last) this.session?.sendSeen(ch, last.ts)
   }
 
   unread(s: Session, ch: string) {
@@ -418,7 +421,7 @@ class App {
 
   private onMessage(s: Session, e: Ev & {t: 'msg'}) {
     const fresh = Date.now() - e.ts < 30_000
-    const viewing = s.code === this.active && this.route.kind === 'text' && this.route.ch === e.ch && !away()
+    const viewing = s.code === this.active && !away() && (this.route.kind === 'text' ? this.route.ch === e.ch : this.roomChatOpen && e.ch === 'ses')
     if (viewing) { this.markRead(); return }
     if (!fresh) return
     if (this.prefs.sounds) beep([[880, .08], [1175, .1]], .03)

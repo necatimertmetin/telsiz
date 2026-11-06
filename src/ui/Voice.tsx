@@ -201,6 +201,13 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const [tab, setTab] = useState<'chat' | 'list'>('chat')
   const [audioOpen, setAudioOpen] = useState(false)
   const v = s.voice
+  const roomChat = v.in && side && tab === 'chat'
+  useEffect(() => {
+    app.roomChatOpen = roomChat
+    app.markRead()
+    app.bump()
+    return () => { app.roomChatOpen = false }
+  }, [roomChat, s])
   const others = [...s.peers].filter(([, p]) => p.voice.in)
 
   if (!v.in) return (
