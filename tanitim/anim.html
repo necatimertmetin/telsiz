@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Telsiz tanıtım animasyonu</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+/* 12 sn animasyon. ?dikey=1 → 1080x1920. ?t=3.5 → o anda dondur (video için render.mjs kullanır). */
+:root{--bg:#141619;--acc:#f5a524;--dim:#8a8f98;--ok:#4cc26a;--amb:#2a2215;--ambl:#5c4520}
+*{margin:0;box-sizing:border-box}
+html,body{width:1920px;height:1080px;background:var(--bg);overflow:hidden;color:var(--acc);font-family:"JetBrains Mono",monospace}
+body.v{width:1080px;height:1920px}
+#st{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:48px}
+.screen{flex:none;width:1100px;padding:48px 60px 34px;border-radius:28px;background:var(--amb);border:3px solid var(--ambl);position:relative;overflow:hidden}
+body.v .screen{width:900px}
+.top{display:flex;justify-content:space-between;align-items:baseline}
+#f{font-size:160px;font-weight:700;letter-spacing:-.03em;line-height:1}
+#tag{font-size:42px;opacity:.85}
+#name{font-family:"Barlow Condensed";font-weight:700;font-size:64px;letter-spacing:.08em;text-transform:uppercase;margin-top:8px;height:80px}
+.scale{position:relative;height:90px;margin-top:30px;border-top:3px solid var(--ambl)}
+.scale i{position:absolute;top:0;width:3px;height:22px;background:var(--ambl)}
+.scale i.big{height:44px}
+#needle{position:absolute;top:-16px;width:8px;height:110px;margin-left:-4px;background:var(--acc);box-shadow:0 0 30px var(--acc)}
+.nums{display:flex;justify-content:space-between;font-size:32px;opacity:.6}
+#noise{position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen}
+#lines{flex:none;overflow:hidden;font-family:"Barlow Condensed";font-weight:700;font-size:96px;letter-spacing:.03em;text-transform:uppercase;color:#f3efe6;text-align:center;line-height:1.05;height:310px}
+body.v #lines{font-size:110px;height:360px}
+body.v #f{font-size:190px}
+#lines div{opacity:0}
+#lines b{color:var(--acc)}
+#url{flex:none;font-size:44px;color:var(--dim);opacity:0;overflow:hidden;height:0}
+.brand{display:flex;align-items:center;gap:22px;font-family:"Barlow Condensed";font-weight:700;font-size:96px;letter-spacing:.06em;text-transform:uppercase;opacity:0;flex:none;overflow:hidden;height:0}
+.led{display:inline-block;width:22px;height:22px;border-radius:50%;background:var(--ok);margin-right:14px;vertical-align:middle}
+</style>
+</head>
+<body>
+<div id="st">
+  <div class="brand" id="brand"><svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4.5 10.5a8 8 0 0 1 15 0"/><path d="M8 11a4 4 0 0 1 8 0"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><path d="M12 13.5V21"/></svg>Telsiz</div>
+  <div class="screen" id="screen">
+    <div class="top"><span id="f">88.0</span><span id="tag">SES</span></div>
+    <div id="name"></div>
+    <div class="scale" id="scale"><span id="needle"></span></div>
+    <div class="nums"><span>88</span><span>98</span><span>108</span></div>
+    <canvas id="noise"></canvas>
+  </div>
+  <div id="lines"><div>Hesapsız.</div><div>Sunucusuz.</div><div><b>Arkadaşlarınla.</b></div></div>
+  <div id="url">necatimertmetin.github.io/telsiz</div>
+</div>
+<script>
+const q = new URLSearchParams(location.search)
+if (q.get('dikey')) document.body.classList.add('v')
+const $ = id => document.getElementById(id)
+const scale = $('scale')
+for (let i = 0; i <= 40; i++) { const t = document.createElement('i'); t.className = i % 5 ? '' : 'big'; t.style.left = i * 2.5 + '%'; scale.appendChild(t) }
+const cv = $('noise'), cx = cv.getContext('2d'); cv.width = 220; cv.height = 70; cv.style.width = '100%'; cv.style.height = '100%'
+// Sabit tohumlu rastgele: aynı t aynı kare.
+const rnd = s => () => (s = (s * 16807) % 2147483647) / 2147483647
+const clamp = x => Math.max(0, Math.min(1, x))
+const ease = x => 1 - Math.pow(1 - clamp(x), 3)
+const seg = (t, a, b) => clamp((t - a) / (b - a))
+const NAME = 'Cumartesi ekibi'
+
+function render(t) {
+  // 0-0.8 ekran belirir; 0.8-4.2 ibre parazitle arar, 90.0'a oturur; 4.2-8.6 üç satır; 8.6-12 marka ve link.
+  const screenIn = ease(seg(t, 0, .8))
+  const lift = ease(seg(t, 8.4, 9.2))
+  $('screen').style.opacity = screenIn * (1 - lift * .45)
+  $('screen').style.transform = `scale(${.94 + .06 * screenIn - .12 * lift}) translateY(${(1 - screenIn) * 30}px)`
+  // İbre: 88 → 104 → 95 → 90.0
+  const s = seg(t, .8, 4.2)
+  let f
+  if (s < .45) f = 88 + 16 * ease(s / .45)
+  else if (s < .75) f = 104 - 9 * ease((s - .45) / .3)
+  else f = 95 - 5 * ease((s - .75) / .25)
+  const locked = t >= 4.2
+  $('f').textContent = (locked ? 90 : f).toFixed(1)
+  $('needle').style.left = ((locked ? 90 : f) - 88) / 20 * 100 + '%'
+  $('tag').innerHTML = locked ? '<span class="led"></span>YAYINDA' : 'ARANIYOR'
+  $('name').textContent = locked ? NAME.slice(0, Math.round(seg(t, 4.2, 5) * NAME.length)) : ''
+  // Parazit: aradıkça var, oturunca söner
+  const n = (1 - seg(t, 3.9, 4.5)) * screenIn
+  const r = rnd(1 + Math.floor(t * 30))
+  cx.clearRect(0, 0, 220, 70)
+  if (n > 0) for (let i = 0; i < 900; i++) { cx.fillStyle = `rgba(245,165,36,${r() * .35 * n})`; cx.fillRect(r() * 220 | 0, r() * 70 | 0, 1, 1) }
+  // Satırlar
+  const ls = $('lines').children
+  for (let i = 0; i < 3; i++) {
+    const a = ease(seg(t, 4.8 + i * .9, 5.4 + i * .9)), out = ease(seg(t, 8.4, 9))
+    ls[i].style.opacity = a * (1 - out)
+    ls[i].style.transform = `translateY(${(1 - a) * 40}px)`
+  }
+  // Marka ve link
+  const b = ease(seg(t, 9, 9.8))
+  $('brand').style.opacity = b
+  $('brand').style.transform = `translateY(${(1 - b) * 30}px)`
+  $('brand').style.height = b * 130 + 'px'
+  $('url').style.opacity = ease(seg(t, 9.6, 10.4))
+  $('url').style.height = ease(seg(t, 9.2, 9.8)) * 60 + 'px'
+  const gone = ease(seg(t, 8.8, 9.4))
+  $('lines').style.height = (document.body.classList.contains('v') ? 360 : 310) * (1 - gone) + 'px'
+  $('lines').style.marginTop = -48 * gone + 'px'
+}
+window.render = render
+window.DUR = 12
+if (q.has('t')) render(+q.get('t'))
+else { const t0 = performance.now(); const loop = () => { render(((performance.now() - t0) / 1000) % 13); requestAnimationFrame(loop) }; loop() }
+</script>
+</body>
+</html>
