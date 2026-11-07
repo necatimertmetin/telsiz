@@ -19,6 +19,7 @@ async function open({init, tag = 'v1.5.0', ua, fail}) {
   await p.getByLabel('Grup adı').fill('Test')
   await p.getByRole('button', {name: 'Kur'}).click()
   await p.getByRole('button', {name: 'Ayarlar', exact: true}).click()
+  await p.getByRole('tab', {name: 'Yedek ve cihaz'}).click()
   return p
 }
 const press = p => p.getByRole('button', {name: 'Güncellemeleri denetle'}).click()

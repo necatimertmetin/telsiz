@@ -76,6 +76,7 @@ await veli.waitForTimeout(1500)
 check(await veli.evaluate(() => window.telsiz.session.voice.room) !== '', 'yetkisi kalmayan taşıyamıyor')
 await ali.evaluate(() => window.telsiz.go({kind: 'text', ch: 'genel'}))
 await ali.getByRole('button', {name: 'Ayarlar'}).click()
+await ali.getByRole('tab', {name: 'Üyeler ve yetkiler'}).click()
 check(await ali.getByText('Kim ne yapabilir').count() === 1 && await ali.getByText('Bu tabloyu sadece kurucu değiştirir.').count() === 1, 'üye tabloyu görüyor, değiştiremiyor')
 await ali.getByRole('button', {name: 'Kapat'}).click()
 

@@ -46,6 +46,59 @@ function beep(notes: [number, number][], vol = 0.05) {
   } catch { /* ses yok */ }
 }
 
+// Temalar sadece renk değişkenlerini değiştirir (styles.css içinde [data-theme]). Seçim bu cihazda kalır.
+export const THEMES = [
+  {id: 'gece', name: 'Gece', bg: '#14161a', card: '#21252b', acc: '#f5a524'},
+  {id: 'gunduz', name: 'Gündüz', bg: '#f4f2ee', card: '#ffffff', acc: '#b97400'},
+  {id: 'deniz', name: 'Deniz', bg: '#0f1620', card: '#1a2a3d', acc: '#3fb6e8'},
+  {id: 'orman', name: 'Orman', bg: '#111712', card: '#1c2a20', acc: '#6fcf73'},
+  {id: 'mor', name: 'Mor', bg: '#15121c', card: '#231e2f', acc: '#a78bfa'},
+] as const
+
+// Yazı tipleri Google Fonts'tan seçilince yüklenir; Barlow sayfayla zaten geliyor.
+export const FONTS = [
+  {id: 'barlow', name: 'Barlow', css: 'Barlow', g: ''},
+  {id: 'nunito', name: 'Nunito', css: 'Nunito', g: 'Nunito:wght@400;600;700'},
+  {id: 'comic', name: 'Comic Neue', css: '"Comic Neue"', g: 'Comic+Neue:wght@400;700'},
+  {id: 'grotesk', name: 'Space Grotesk', css: '"Space Grotesk"', g: 'Space+Grotesk:wght@400;500;600;700'},
+  {id: 'atkinson', name: 'Atkinson (kolay okunur)', css: '"Atkinson Hyperlegible"', g: 'Atkinson+Hyperlegible:wght@400;700'},
+  {id: 'poppins', name: 'Poppins', css: 'Poppins', g: 'Poppins:wght@400;500;600;700'},
+  {id: 'montserrat', name: 'Montserrat', css: 'Montserrat', g: 'Montserrat:wght@400;500;600;700'},
+  {id: 'quicksand', name: 'Quicksand', css: 'Quicksand', g: 'Quicksand:wght@400;500;600;700'},
+  {id: 'inconsolata', name: 'Inconsolata (yazı makinesi)', css: 'Inconsolata', g: 'Inconsolata:wght@400;500;600;700'},
+  {id: 'orbitron', name: 'Orbitron (bilim kurgu)', css: 'Orbitron', g: 'Orbitron:wght@400;500;600;700'},
+  {id: 'cinzel', name: 'Cinzel (klasik)', css: 'Cinzel', g: 'Cinzel:wght@400;600;700'},
+  {id: 'momo', name: 'Momo Signature (el yazısı)', css: '"Momo Signature"', g: 'Momo+Signature'},
+  {id: 'system', name: 'Cihazın yazı tipi', css: 'system-ui', g: ''},
+] as const
+export const SIZES = [{v: .9, name: 'Küçük'}, {v: 1, name: 'Normal'}, {v: 1.1, name: 'Büyük'}, {v: 1.25, name: 'Çok büyük'}] as const
+
+export function applyText(font: string, size: number) {
+  const f = FONTS.find(x => x.id === font) ?? FONTS[0]
+  const r = document.documentElement
+  if (f.g && !document.getElementById('font-' + f.id)) {
+    const l = Object.assign(document.createElement('link'), {id: 'font-' + f.id, rel: 'stylesheet', href: `https://fonts.googleapis.com/css2?family=${f.g}&display=swap`})
+    document.head.append(l)
+  }
+  r.style.setProperty('--font', `${f.css},system-ui,-apple-system,"Segoe UI",sans-serif`)
+  const z = SIZES.some(x => x.v === size) ? size : 1
+  r.style.setProperty('--z', String(z))
+}
+
+export const DOODLES = [{id: 'off', name: 'Düz'}, {id: 'line', name: 'Çizgili desen'}, {id: 'tone', name: 'Tonlu desen'}] as const
+// Eski sürümde desen açık/kapalıydı.
+export const doodleOf = (v: string | boolean) => v === true ? 'line' : DOODLES.some(d => d.id === v) ? v as string : 'off'
+
+export function applyTheme(id: string, doodle: string | boolean) {
+  const t = THEMES.find(x => x.id === id) ?? THEMES[0]
+  const d = doodleOf(doodle)
+  if (d === 'off') delete document.documentElement.dataset.doodle
+  else document.documentElement.dataset.doodle = d
+  if (t.id === 'gece') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = t.id
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', t.bg)
+}
+
 class App {
   me = load<Me>('me', {uid: '', name: ''})
   groups = loadArr<GroupRef>('groups')
@@ -54,7 +107,7 @@ class App {
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
   roomChatOpen = false
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean}>('prefs', {radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean; theme: string; doodle: string | boolean; font: string; size: number}>('prefs', {theme: 'gece', doodle: 'off', font: 'barlow', size: 1, radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
@@ -76,6 +129,8 @@ class App {
   private ringTimer?: ReturnType<typeof setTimeout>
 
   constructor() {
+    applyTheme(this.prefs.theme, this.prefs.doodle)
+    applyText(this.prefs.font, this.prefs.size)
     if (!this.me.uid) this.me.uid = randomId()
     // Tarayıcı yer açarken bu sitenin verisini silmesin diye kalıcı depolama istenir.
     void navigator.storage?.persist?.().catch(() => {})

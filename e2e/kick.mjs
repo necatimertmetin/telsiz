@@ -50,6 +50,7 @@ check(await code(ali) === first && await ali.evaluate(u => !window.telsiz.sessio
 await can.goto('about:blank')
 await peers(ali, 2)
 await ali.getByRole('button', {name: 'Ayarlar'}).click()
+await ali.getByRole('tab', {name: 'Üyeler ve yetkiler'}).click()
 await ali.getByRole('button', {name: 'At', exact: true}).first().click()
 check(await ali.getByText('Can çevrimdışı').waitFor({timeout: 10000}).then(() => true, async () => { console.log(await ali.locator('.roster').innerText()); return false }), 'kapalı üye için uyarı çıkıyor')
 await ali.getByRole('button', {name: 'Vazgeç'}).click()

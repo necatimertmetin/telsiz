@@ -45,4 +45,4 @@ export type View = {title: string; channels: Channel[]; msgs: Map<string, Msg[]>
 export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean; sAudio?: boolean; room?: string}
 export type Other = {uid: string; name: string; voice: VoiceState}
 export type Presence = {uid: string; name: string; voice: VoiceState; others?: Other[]}
-export type Profile = {color?: string; avatar?: string}
+export type Profile = {color?: string; avatar?: string; look?: 'monster' | 'badge' | 'pixel' | 'letter'; seed?: number; icon?: number}

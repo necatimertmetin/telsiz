@@ -1,4 +1,5 @@
 import {getRelaySockets, joinRoom, selfId} from 'trystero'
+import {isLook} from './faces'
 import {can, canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
 import {codeHash, openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
@@ -144,7 +145,9 @@ export class Session {
       if (!d || d.uid !== this.authed.get(peerId)) return
       const color = typeof d.color === 'string' && /^#[0-9a-f]{6}$/i.test(d.color) ? d.color : undefined
       const avatar = typeof d.avatar === 'string' && d.avatar.startsWith('data:image/jpeg;base64,') && d.avatar.length < 60_000 ? d.avatar : undefined
-      this.hooks.profile(d.uid, {color, avatar})
+      const look = isLook(d.look) ? d.look : undefined
+      const num = (v: unknown, max: number) => Number.isInteger(v) && (v as number) >= 0 && (v as number) < max ? v as number : undefined
+      this.hooks.profile(d.uid, {color, avatar, look, seed: num(d.seed, 100000), icon: num(d.icon, 64)})
     }
     this.a.sfx.onMessage = (id: string, {peerId}: {peerId: string}) => { if (typeof id === 'string') this.hooks.sfx(this, id, peerId) }
     this.a.ids.onMessage = (d: {uid?: string; ids?: string[]}, {peerId}: {peerId: string}) => {

@@ -1,4 +1,5 @@
 import {useEffect, useState, type FormEvent} from 'react'
+import {faceUrl} from '../lib/faces'
 import {app, useApp} from '../lib/app'
 import type {Session} from '../lib/session'
 import {can, dmId, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
@@ -17,7 +18,7 @@ export function Avatar({uid, name, on, s = 34}: {uid: string; name: string; on?:
   const p = app.profiles[uid]
   return (
     <span className={'av' + (on ? ' talk' : '')} style={{background: p?.color ?? colorFor(uid), width: s, height: s, fontSize: s * .44}}>
-      {p?.avatar ? <img src={p.avatar} alt="" /> : initials(name)}
+      <img src={p?.avatar ?? faceUrl(p?.look ?? 'monster', uid, p?.seed ?? 0, p?.icon ?? 0, p?.color ?? colorFor(uid), initials(name))} alt="" />
     </span>
   )
 }

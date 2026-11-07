@@ -1,7 +1,7 @@
 import {useEffect, type ReactNode} from 'react'
 import {Icon} from './Icon'
 
-export function Modal({title, onClose, children}: {title: string; onClose: () => void; children: ReactNode}) {
+export function Modal({title, onClose, children, wide}: {title: string; onClose: () => void; children: ReactNode; wide?: boolean}) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     addEventListener('keydown', k)
@@ -9,7 +9,7 @@ export function Modal({title, onClose, children}: {title: string; onClose: () =>
   }, [onClose])
   return (
     <div className="overlay" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal" role="dialog" aria-label={title}>
+      <div className={"modal" + (wide ? " wide" : "")} role="dialog" aria-label={title}>
         <header><h3>{title}</h3><button className="ico" aria-label="Kapat" onClick={onClose}><Icon n="x" /></button></header>
         <div className="modalbody">{children}</div>
       </div>

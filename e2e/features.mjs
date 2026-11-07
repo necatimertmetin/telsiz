@@ -77,6 +77,7 @@ await waitFor(() => B.page.getByText('Maç vakti').first().isVisible(), 90000, '
 
 // Yedek kodu kutusu
 await C.page.getByRole('button', {name: 'Ayarlar'}).first().click()
+await C.page.getByRole('tab', {name: 'Yedek ve cihaz'}).click()
 const box = await C.page.evaluate(() => { const e = document.querySelector('.code.small'); return {h: e.clientHeight, full: e.scrollHeight} })
 check(box.h >= 60, `yedek kodu kutusu yeterince yüksek (${box.h}px, içerik ${box.full}px)`)
 await C.page.screenshot({path: 'e2e/out/backup.png'})
