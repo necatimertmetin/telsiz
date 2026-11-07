@@ -13,6 +13,7 @@ import {tvCurrent} from '../lib/tv'
 import {RadioPanel} from './Radio'
 import {can, MAIN_ROOM, roomChat} from '../lib/history'
 import type {VoiceState} from '../lib/types'
+import {csDead, csLine, csScore, type CsState} from '../lib/cs'
 
 function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted: boolean; mirror?: boolean; volume?: number}) {
   const r = useRef<HTMLVideoElement>(null)
@@ -26,7 +27,7 @@ function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted:
   return <video ref={r} autoPlay playsInline muted={muted} className={mirror ? 'mirror' : ''} />
 }
 
-type Tile = {key: string; uid: string; name: string; peerId?: string; stream?: MediaStream; screen?: boolean; muted?: boolean; deaf?: boolean; talk: boolean; self: boolean}
+type Tile = {key: string; uid: string; name: string; peerId?: string; stream?: MediaStream; screen?: boolean; muted?: boolean; deaf?: boolean; talk: boolean; self: boolean; cs?: CsState}
 
 function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void}) {
   const r = useRef<HTMLDivElement>(null)
@@ -34,8 +35,9 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
   const hasAudio = !!t.screen && !!t.stream && t.stream.getAudioTracks().length > 0
   const volKey = t.screen ? 's:' + t.uid : t.uid
   const stat = t.screen ? app.liveCall()?.screenStats.get(t.self ? 'me' : t.peerId ?? '') : undefined
+  const cs = csLine(t.cs)
   return (
-    <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '')} onClick={onClick}>
+    <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '') + (csDead(t.cs) ? ' csdead' : '')} onClick={onClick}>
       {t.stream
         ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={(app.volumes[volKey] ?? 1) * app.prefs.outVol} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
@@ -43,6 +45,7 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
       <div className="tilebar">
         {t.muted && <Icon n="micOff" s={15} />}{t.deaf && <Icon n="headOff" s={15} />}{t.screen && <Icon n="screen" s={15} />}{hasAudio && <span className="saudio" title={t.self ? 'Ekranının sesi yayında' : 'Ekran sesi geliyor'}><Icon n="speaker" s={15} /></span>}
         <span className="ell">{t.name}{t.self ? ' (sen)' : ''}</span>
+        {cs && <span className={'tilecs' + (t.cs?.team === 'CT' ? ' ct' : t.cs?.team === 'T' ? ' t' : '')} title={csScore(t.cs)}>{cs}</span>}
       </div>
       <div className="tileact" onClick={e => e.stopPropagation()}>
         {t.peerId && (!t.screen || hasAudio) && (
@@ -242,13 +245,13 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
     const r = call.remote.get(peerId)
     if (p.voice.screen && r?.screen) tiles.push({key: peerId + '-screen', uid: p.uid, name: p.name, stream: r.screen, screen: true, talk: false, self: false, peerId})
   }
-  tiles.push({key: 'me', uid: app.me.uid, name: app.me.name, stream: call.streams.cam, muted: v.muted, deaf: v.deaf, talk: call.speaking.has('me'), self: true})
+  tiles.push({key: 'me', uid: app.me.uid, name: app.me.name, stream: call.streams.cam, muted: v.muted, deaf: v.deaf, talk: call.speaking.has('me'), self: true, cs: app.cs})
   for (const [peerId, p] of others) {
     const r = call.remote.get(peerId)
-    tiles.push({key: peerId, uid: p.uid, name: p.name, peerId, stream: p.voice.cam ? r?.cam : undefined, muted: p.voice.muted, deaf: p.voice.deaf, talk: call.speaking.has(peerId), self: false})
+    tiles.push({key: peerId, uid: p.uid, name: p.name, peerId, stream: p.voice.cam ? r?.cam : undefined, muted: p.voice.muted, deaf: p.voice.deaf, talk: call.speaking.has(peerId), self: false, cs: p.voice.cs})
   }
   for (const u of s.indirect().values()) if (u.voice.in && roomOf(u.voice) === room.id)
-    tiles.push({key: 'r:' + u.uid, uid: u.uid, name: `${u.name} (${u.via} üzerinden)`, muted: u.voice.muted, deaf: u.voice.deaf, talk: call.speaking.has('r:' + u.uid), self: false})
+    tiles.push({key: 'r:' + u.uid, uid: u.uid, name: `${u.name} (${u.via} üzerinden)`, muted: u.voice.muted, deaf: u.voice.deaf, talk: call.speaking.has('r:' + u.uid), self: false, cs: u.voice.cs})
   const focused = tiles.find(t => t.key === focus)
   const rest = focused ? tiles.filter(t => t !== focused) : tiles
 

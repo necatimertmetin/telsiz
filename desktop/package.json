@@ -15,6 +15,7 @@
     "files": [
       "main.cjs",
       "preload.cjs",
+      "gsi.cjs",
       "overlay.html",
       "overlay-preload.cjs",
       "offline.html",

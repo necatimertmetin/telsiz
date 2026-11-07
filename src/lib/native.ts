@@ -1,3 +1,4 @@
+import type {GsiFeed} from './cs'
 // Masaüstü (Electron) ve Android (Capacitor) kabuklarının web koduna açtığı köprü.
 type TelsizPlugin = {
   callStart(): Promise<void>
@@ -29,6 +30,10 @@ export type DesktopBridge = {
   onPipMode?(cb: (on: boolean) => void): void
   radioTitle?(url: string): Promise<string | null>
   setTitleBar?(o: {color: string; symbolColor: string}): void
+  // CS2 maç bilgisi (GSI): kabuk oyunun yolladığı durumu süzüp iletir.
+  onCs?(cb: (d: GsiFeed) => void): void
+  csSetup?(): Promise<{ok: true; path: string; existed: boolean} | {ok: false; reason: 'steam' | 'cs2' | 'write'}>
+  csStatus?(): Promise<{set: boolean}>
 }
 declare global {
   interface Window {

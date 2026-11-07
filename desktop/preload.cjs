@@ -18,5 +18,8 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   setPipAvail: on => ipcRenderer.send('pip-avail', on),
   exitPip: () => ipcRenderer.send('pip-exit'),
   setTitleBar: o => ipcRenderer.send('titlebar', o),
+  onCs: cb => ipcRenderer.on('cs', (_e, d) => cb(d)),
+  csSetup: () => ipcRenderer.invoke('cs-setup'),
+  csStatus: () => ipcRenderer.invoke('cs-status'),
   onPipMode: cb => ipcRenderer.on('pip-mode', (_e, on) => cb(on)),
 })

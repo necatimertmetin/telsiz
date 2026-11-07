@@ -15,6 +15,7 @@ import {Settings} from './Settings'
 import {MiniCall, pipMedia, VoiceStage} from './Voice'
 import {Frekans} from './Frekans'
 import {syncTitlebar} from '../lib/titlebar'
+import {csScore} from '../lib/cs'
 
 export const PUBLIC_URL = 'https://necatimertmetin.github.io/telsiz/'
 
@@ -521,6 +522,7 @@ export function App() {
           {searching && app.route.kind === 'text'
             ? <input className="searchbox grow" autoFocus placeholder="Mesajlarda ara" value={app.search} aria-label="Mesajlarda ara" onChange={e => { app.search = e.target.value; app.bump() }} onKeyDown={e => { if (e.key === 'Escape') { setSearching(false); app.search = ''; app.bump() } }} />
             : <strong className="ell grow">{title}</strong>}
+          {app.route.kind === 'voice' && app.roomCs(s) && <span className="csscore" role="status" aria-label="CS2 maç">{csScore(app.roomCs(s))}</span>}
           {app.route.kind === 'text' && <button className="ico" title="Ara" aria-label="Ara" onClick={() => { setSearching(!searching); app.search = ''; app.bump() }}><Icon n={searching ? 'x' : 'search'} /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Sesli katıl" aria-label="Sesli katıl" onClick={() => void app.joinVoice()}><Icon n="wave" /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Görüntülü katıl" aria-label="Görüntülü katıl" onClick={() => void app.joinVoice(true)}><Icon n="video" /></button>}

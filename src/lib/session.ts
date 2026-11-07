@@ -6,6 +6,7 @@ import * as db from './db'
 import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
 import {lowLatencySdp, newRoomCode, orderCodecs, parseInvite, randomId} from './util'
 import {screenCodec} from './native'
+import {cleanCs, sameCs, type CsState} from './cs'
 import type {Ev, FileMeta, Other, Presence, Profile, RoomKind, Station, View, VoiceState} from './types'
 
 export const CHUNK = 128 * 1024
@@ -69,6 +70,13 @@ function testBlock(uid: string) {
 }
 
 const SETTLE_MS = 15000
+const CS_GAP = 2000
+// Eski istemci cs yollamaz; bozuk ya da fazla alan atılır, alan hiç yoksa eklenmez.
+function withCs<T extends {cs?: unknown}>(v: T): T {
+  const {cs, ...rest} = v
+  const c = cleanCs(cs)
+  return (c ? {...rest, cs: c} : rest) as T
+}
 
 export class Session {
   readonly events = new Map<string, Ev>()
@@ -83,6 +91,10 @@ export class Session {
   linkError = ''
   relayOk = true
   voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
+  // Kendi CS2 durumum: sadece sesteyken presence'a eklenir. Sık gelir, duyuru en çok 2 sn'de bir gider.
+  cs: CsState | undefined
+  private csSent = 0
+  private csTimer: ReturnType<typeof setTimeout> | null = null
   onPeerLeft?: (peerId: string) => void
   onPresence?: () => void
 
@@ -357,7 +369,18 @@ export class Session {
   }
   private presence(): Presence {
     const others: Other[] = [...this.peers.values()].map(p => ({uid: p.uid, name: p.name, voice: p.voice}))
-    return {uid: this.me.uid, name: this.me.name, voice: this.voice, others}
+    const voice = this.voice.in && this.cs ? {...this.voice, cs: this.cs} : this.voice
+    return {uid: this.me.uid, name: this.me.name, voice, others}
+  }
+
+  setCs(cs: CsState | undefined) {
+    if (sameCs(cs, this.cs)) return
+    this.cs = cs
+    if (!this.voice.in) { this.hooks.changed(); return }
+    if (this.csTimer) return
+    const wait = CS_GAP - (Date.now() - this.csSent)
+    const go = () => { this.csTimer = null; this.csSent = Date.now(); this.announce() }
+    if (wait <= 0) go(); else this.csTimer = setTimeout(go, wait)
   }
 
   // Bana doğrudan bağlı olmayan ama bir arkadaşıma bağlı kişiler.
@@ -406,10 +429,10 @@ export class Session {
   private gotHello(p: Presence, peerId: string) {
     if (!p || typeof p.uid !== 'string' || typeof p.name !== 'string' || !p.voice) return
     if (p.uid === this.me.uid) return // aynı hesabın diğer cihazı: eşitlenir, üye olarak görünmez
-    const others = Array.isArray(p.others) ? p.others.filter(o => o && typeof o.uid === 'string' && typeof o.name === 'string' && o.voice).slice(0, 20) : []
+    const others = Array.isArray(p.others) ? p.others.filter(o => o && typeof o.uid === 'string' && typeof o.name === 'string' && o.voice).slice(0, 20).map(o => ({...o, voice: withCs(o.voice)})) : []
     const old = this.peers.get(peerId)
     const room = typeof p.voice.room === 'string' && p.voice.room.length <= 32 ? p.voice.room : ''
-    const next = {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice, room}, others}
+    const next = {uid: p.uid, name: p.name.slice(0, 40), voice: withCs({...p.voice, room}), others}
     this.peers.set(peerId, next)
     // Komşunun kendi durumu değişince diğerlerine de duyurulur; sadece 'others' değişince
     // duyurulmaz, yoksa iki kişi birbirine sonsuza dek haber verir.
@@ -658,6 +681,7 @@ export class Session {
 
   async leave() {
     clearInterval(this.statTimer)
+    if (this.csTimer) clearTimeout(this.csTimer)
     for (const u of this.urls.values()) URL.revokeObjectURL(u)
     await this.room.leave()
   }

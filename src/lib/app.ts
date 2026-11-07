@@ -9,6 +9,7 @@ const latestTag = async (): Promise<string | undefined> =>
   (await fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json()))?.tag_name
 import {codeHash, loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
 import {playSfx} from './sfx'
+import {fromGsi, sameCs, type CsState} from './cs'
 import {radio} from './radio'
 import {MAIN_ROOM, roomChat} from './history'
 import type {Ev, Profile, VRoom} from './types'
@@ -165,6 +166,8 @@ class App {
     })
     addEventListener('hashchange', () => this.readHash())
     this.setupPtt()
+    desktop()?.onCs?.(d => this.setCs(fromGsi(d)))
+    setInterval(() => { if (this.cs && Date.now() - this.csAt > 30_000) this.setCs(undefined) }, 5000)
     desktop()?.onPipMode?.(on => { this.pipMode = on; this.bump() })
     // Tarayıcıda sekme arkaya geçince (görüşmedeyken) Chrome kendiliğinden küçük pencere açabilir:
     // arkadaşın ekranı ya da kamerası oraya alınır. YouTube başka siteden geldiği için alınamaz.
@@ -399,6 +402,7 @@ class App {
       absorb: se => this.absorb(se),
       move: (se, room, by) => this.onMove(se, room, by),
     }, this.turnServers(), this.identity)
+    s.cs = this.cs
     this.sessions.set(g.code, s)
     this.calls.set(g.code, new Call(s, () => this.prefs, uid => (this.volumes[uid] ?? 1) * this.prefs.outVol, this.bump, () => this.prefs.gameMode, j => {
       if (this.prefs.sounds) beep(j ? [[523, .07], [659, .09]] : [[659, .07], [440, .09]], .04)
@@ -408,6 +412,25 @@ class App {
   get session() { return this.active ? this.sessions.get(this.active) ?? null : null }
   get call() { return this.active ? this.calls.get(this.active) ?? null : null }
   liveSession() { return [...this.sessions.values()].find(s => s.voice.in) ?? null }
+  // CS2 maç bilgisi: Windows uygulaması oyundan alır. Maçtan çıkınca ya da 30 sn veri gelmezse silinir.
+  cs: CsState | undefined
+  csAt = 0
+  setCs(cs: CsState | undefined) {
+    if (cs) this.csAt = Date.now()
+    if (sameCs(cs, this.cs)) return
+    this.cs = cs
+    for (const s of this.sessions.values()) s.setCs(cs)
+    this.bump()
+  }
+  // Oda başlığındaki harita ve skor: önce kendi maçım, yoksa odadaki birinin.
+  roomCs(s: Session): CsState | undefined {
+    if (!s.voice.in) return undefined
+    if (this.cs) return this.cs
+    const room = s.voice.room ?? ''
+    for (const p of s.peers.values()) if (p.voice.in && (p.voice.room ?? '') === room && p.voice.cs) return p.voice.cs
+    for (const u of s.indirect().values()) if (u.voice.in && (u.voice.room ?? '') === room && u.voice.cs) return u.voice.cs
+    return undefined
+  }
   liveCall() { const s = this.liveSession(); return s ? this.calls.get(s.code) ?? null : null }
 
   setName(name: string) {

@@ -209,6 +209,16 @@ app.whenReady().then(() => {
   ipcMain.handle('adblock-on', () => adOnDisk())
   ipcMain.handle('radio-title', (_e, url) => radioTitle(url))
   if (adOnDisk()) void setAdblock(true)
+  // CS2 maç bilgisi (GSI): oyun durumu buraya gelir, sayfaya iletilir.
+  const gsi = require('./gsi.cjs')
+  const tokens = gsi.tokenStore(path.join(app.getPath('userData'), 'gsi.json'))
+  gsi.startServer(tokens.get, d => win?.webContents.send('cs', d))
+  ipcMain.handle('cs-setup', async () => {
+    const r = await gsi.setup(tokens.ensure())
+    if (r.ok) tokens.mark(r.path)
+    return r
+  })
+  ipcMain.handle('cs-status', () => tokens.status())
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
   ipcMain.on('ptt', (_e, vk) => setPtt(vk))
   ipcMain.on('overlay', (_e, people) => setOverlay(people))

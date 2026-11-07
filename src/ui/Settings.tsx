@@ -8,6 +8,7 @@ import {Avatar} from './App'
 import {Icon} from './Icon'
 import {Modal} from './Modal'
 import {Roster} from './Roster'
+import {csScore} from '../lib/cs'
 
 async function pickAvatar(f: File) {
   const bmp = await createImageBitmap(f)
@@ -38,6 +39,32 @@ function Switch({title, hint, checked, onChange}: {title: string; hint?: ReactNo
       <input type="checkbox" role="switch" checked={checked} onChange={e => onChange(e.target.checked)} />
     </label>
   )
+}
+
+// CS2 maç bilgisi: Valve'ın resmi Game State Integration dosyası oyunun cfg klasörüne yazılır.
+// Oyunun kendisine dokunulmaz. Sadece Windows uygulamasında görünür.
+const CS_FAIL = {steam: 'Steam bulunamadı.', cs2: 'CS2 kurulu bulunamadı.', write: 'Dosya yazılamadı, CS2 klasörüne izin yok.'}
+function CsSetup() {
+  const [set, setSet] = useState<boolean | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { void desktop()?.csStatus?.().then(r => setSet(r.set)).catch(() => setSet(false)) }, [])
+  const run = async () => {
+    setBusy(true)
+    const r = await desktop()!.csSetup!().catch(() => null)
+    setBusy(false)
+    if (!r) { setMsg('Kurulamadı.'); return }
+    if (r.ok) { setSet(true); setMsg(r.existed ? 'Bağlantı yenilendi. CS2 açıksa yeniden başlat.' : 'Kuruldu. CS2 açıksa yeniden başlat.') } else setMsg(CS_FAIL[r.reason] ?? 'Kurulamadı.')
+  }
+  const status = app.cs ? `Bağlı: ${csScore(app.cs)}` : set ? 'Kurulu. Maça girince bilgi gelir.' : set === false ? 'Kurulu değil.' : ''
+  return <>
+    <h4>CS2 maç bilgisi</h4>
+    <p className="dim small">Seste takımın, canın ve skor arkadaşlarının kutusunda görünür. Valve'ın resmi oyun durumu özelliği kullanılır, oyuna dokunulmaz.</p>
+    <div className="row wrap">
+      <button className="btn" disabled={busy} onClick={() => void run()}>{busy ? 'Kuruluyor…' : set ? 'CS2 bağlantısını yenile' : 'CS2 bağlantısını kur'}</button>
+      <span className="dim small" role="status">{app.cs ? status : msg ?? status}</span>
+    </div>
+  </>
 }
 
 const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width:700px)').matches
@@ -172,6 +199,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
           : <p className="dim small">Oyundayken kısayolla mikrofonu kapatmak ve bas-konuş için Windows uygulamasını kullan.</p>}
         {desktop() && <div className="permrow"><span>Kulaklık aç/kapa</span><b>Ctrl+Shift+D</b></div>}
         <div className="permrow"><span>Bas-konuş</span><b>{p.ptt ? p.pttLabel : 'Kapalı'}</b></div>
+        {desktop()?.csSetup && <CsSetup />}
       </>
       case 'bildirim': return <>
         <Switch title="Bildirim sesleri" hint="Mesaj, çağrı ve sese giriş-çıkış" checked={p.sounds} onChange={v => set('sounds', v)} />

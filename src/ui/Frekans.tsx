@@ -6,6 +6,7 @@ import {Avatar, chatName, KIND_ICON, Members, Notices, people, RadioBar, roomRow
 import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {MiniCall, VoiceStage} from './Voice'
+import {csScore} from '../lib/cs'
 
 // Frekans arayüzü (masaüstü): üstte gruplar ve sinyaldekiler, solda kadran (frekanslar ve kanallar),
 // ortada sahne, sağda kişiler. Sohbet, ses sahnesi, radyo ve ayarlar klasik arayüzle aynı bileşenler.
@@ -216,6 +217,7 @@ export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalK
             ? <input className="searchbox grow" autoFocus placeholder="Mesajlarda ara" value={app.search} aria-label="Mesajlarda ara" onChange={e => { app.search = e.target.value; app.bump() }} onKeyDown={e => { if (e.key === 'Escape') { setSearching(false); app.search = ''; app.bump() } }} />
             : <h1 className="ell">{name}</h1>}
           {!searching && f && <span className="fq-meta">{f} MHz{route.kind === 'voice' ? ` · ${voiceN} kişi` : ''}</span>}
+          {route.kind === 'voice' && joined && app.roomCs(s) && <span className="csscore" role="status" aria-label="CS2 maç">{csScore(app.roomCs(s))}</span>}
           <div className="grow" />
           {joined && <Ptt />}
           {route.kind === 'text' && <button className="ico" title="Ara" aria-label="Ara" onClick={() => { setSearching(!searching); app.search = ''; app.bump() }}><Icon n={searching ? 'x' : 'search'} /></button>}
