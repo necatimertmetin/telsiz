@@ -27,7 +27,7 @@ function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted:
   return <video ref={r} autoPlay playsInline muted={muted} className={mirror ? 'mirror' : ''} />
 }
 
-type Tile = {key: string; uid: string; name: string; peerId?: string; stream?: MediaStream; screen?: boolean; muted?: boolean; deaf?: boolean; talk: boolean; self: boolean; cs?: CsState}
+type Tile = {key: string; uid: string; name: string; peerId?: string; stream?: MediaStream; screen?: boolean; offer?: boolean; muted?: boolean; deaf?: boolean; talk: boolean; self: boolean; cs?: CsState}
 
 function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void}) {
   const r = useRef<HTMLDivElement>(null)
@@ -38,7 +38,9 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
   const cs = csLine(t.cs)
   return (
     <div ref={r} className={'tile' + (t.talk ? ' talk' : '') + (big ? ' big' : '') + (hasAudio ? ' hasvol' : '') + (csDead(t.cs) ? ' csdead' : '')} onClick={onClick}>
-      {t.stream
+      {t.offer
+        ? <button className="btn pri watchbtn" onClick={e => { e.stopPropagation(); app.liveCall()?.watch(t.uid, true) }}><Icon n="screen" s={18} /> {t.name} ekranını izle</button>
+        : t.stream
         ? <Video stream={t.stream} mirror={t.self && !t.screen} muted={!t.screen || t.self || !!deafened} volume={(app.volumes[volKey] ?? 1) * app.prefs.outVol} />
         : <Avatar uid={t.uid} name={t.name} s={big ? 112 : 76} on={t.talk} />}
       {stat && <div className="tilestat" role="status">{t.self ? 'En zayıf izleyici: ' : ''}{fmtScreenStat(stat)}</div>}
@@ -61,6 +63,7 @@ function TileView({t, big, onClick}: {t: Tile; big: boolean; onClick: () => void
           </>
         )}
         {t.stream && document.pictureInPictureEnabled && <button className="ico sm" aria-label="Küçük pencerede izle" title="Küçük pencerede izle" onClick={() => void r.current?.querySelector('video')?.requestPictureInPicture().catch(() => {})}><Icon n="pip" s={16} /></button>}
+        {t.screen && !t.self && !t.offer && <button className="ico sm" aria-label="İzlemeyi bırak" title="İzlemeyi bırak, yüklemesi sana harcanmasın" onClick={() => app.liveCall()?.watch(t.uid, false)}><Icon n="x" s={16} /></button>}
         {t.stream && <button className="ico sm" aria-label="Tam ekran" onClick={() => void r.current?.requestFullscreen?.()}><Icon n="full" s={16} /></button>}
       </div>
     </div>
@@ -195,7 +198,7 @@ function ScreenMenu({call}: {call: Call}) {
               <span className="ell">{SCREEN_Q[q].label}</span><span className="dim small">{SCREEN_Q[q].b / 1e6} Mb/sn</span>
             </button>
           ))}
-          <p className="dim small">Yükleme hızın izleyen kişi başına bu kadar gider. Oyun modunda yayın kısılır.</p>
+          <p className="dim small">Yayın sadece izlemeyi seçene gider. İzleyen çoğaldıkça kişi başı kalite düşer, toplam yükleme bunun en fazla 1.5 katı olur. Oyun modunda yayın kısılır.</p>
         </div>
       )}
     </>
@@ -245,7 +248,8 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   if (call.streams.screen) tiles.push({key: 'me-screen', uid: app.me.uid, name: 'Ekranın', stream: call.streams.screen, screen: true, talk: false, self: true})
   for (const [peerId, p] of others) {
     const r = call.remote.get(peerId)
-    if (p.voice.screen && r?.screen) tiles.push({key: peerId + '-screen', uid: p.uid, name: p.name, stream: r.screen, screen: true, talk: false, self: false, peerId})
+    if (p.voice.screen && call.watching(p.uid) && r?.screen) tiles.push({key: peerId + '-screen', uid: p.uid, name: p.name, stream: r.screen, screen: true, talk: false, self: false, peerId})
+    else if (p.voice.screen) tiles.push({key: peerId + '-screen', uid: p.uid, name: p.name, screen: true, offer: !call.watching(p.uid), talk: false, self: false, peerId})
   }
   tiles.push({key: 'me', uid: app.me.uid, name: app.me.name, stream: call.streams.cam, muted: v.muted, deaf: v.deaf, talk: call.speaking.has('me'), self: true, cs: app.cs})
   for (const [peerId, p] of others) {

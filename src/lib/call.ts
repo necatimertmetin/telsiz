@@ -1,7 +1,7 @@
 import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
 import type {VoiceState} from './types'
-import {isVirtualMic, worstStat, type ScreenStat} from './util'
+import {isVirtualMic, screenRate, worstStat, type ScreenStat} from './util'
 import {callStarted, callStopped, pickScreenCodec, reapplySpeaker} from './native'
 
 export type Kind = 'mic' | 'cam' | 'screen'
@@ -120,7 +120,7 @@ export class Call {
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
     this.tuner = setInterval(() => { void this.tune(); void this.sampleScreen(); this.sync() }, 3000)
-    this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false, room}
+    this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false, room, w: []}
     this.s.announce()
     void callStarted()
     this.wake = await navigator.wakeLock?.request('screen').catch(() => null)
@@ -186,8 +186,23 @@ export class Call {
   // Oda değişince sadece varlık duyurulur: akışlar sync içinde yeni odaya göre eklenip kaldırılır.
   setRoom(room: string) {
     if (!this.s.voice.in || (this.s.voice.room ?? '') === room) return
-    this.s.voice = {...this.s.voice, room}
+    this.s.voice = {...this.s.voice, room, w: []}
     this.s.announce()
+  }
+
+  // Ekran yayını yalnızca izleyene gider: izlediğim kişilerin uid'leri ses durumunda duyurulur.
+  // w alanı olmayan (eski sürüm) herkesi izliyor sayılır.
+  watching(uid: string) { return !!this.s.voice.w?.includes(uid) }
+  watch(uid: string, on: boolean) {
+    const w = new Set(this.s.voice.w ?? [])
+    if (on) w.add(uid); else w.delete(uid)
+    if (!on) for (const [id, p] of this.s.peers) if (p.uid === uid) { const r = this.remote.get(id); if (r) delete r.screen }
+    this.s.voice = {...this.s.voice, w: [...w]}
+    this.s.announce()
+  }
+  private wantsScreen(id: string) {
+    const w = this.s.peers.get(id)?.voice.w
+    return !w || w.includes(this.meUid())
   }
 
   // Tek doğruluk kaynağı: kim seste ise ona akış gider, çıkana gitmez. Her varlık değişiminde çalışır.
@@ -209,8 +224,9 @@ export class Call {
     for (const k of ['mic', 'cam', 'screen'] as Kind[]) {
       const st = this.streams[k]
       if (!st) continue
-      const add = [...inVoice].filter(id => !this.sent[k].has(id))
-      const gone = [...this.sent[k]].filter(id => !inVoice.has(id))
+      const to = k === 'screen' ? new Set([...inVoice].filter(id => this.wantsScreen(id))) : inVoice
+      const add = [...to].filter(id => !this.sent[k].has(id))
+      const gone = [...this.sent[k]].filter(id => !to.has(id))
       if (add.length) {
         this.s.room.addStream(st, {target: add, metadata: {kind: k}})
         add.forEach(id => this.sent[k].add(id))
@@ -219,6 +235,7 @@ export class Call {
       if (gone.length) {
         try { this.s.room.removeStream(st, {target: gone}) } catch { /* peer gitti */ }
         gone.forEach(id => this.sent[k].delete(id))
+        if (k === 'screen') setTimeout(() => void this.tune(), 500)
       }
     }
     this.syncRelay(inVoice)
@@ -340,7 +357,7 @@ export class Call {
         const audio = sender.track!.kind === 'audio'
         const rate = k === 'mic' ? BITRATE.mic
           : k === 'cam' ? (game ? GAME_CAM : BITRATE.cam)
-          : audio ? SCREEN_AUDIO : game ? Math.min(GAME_SCREEN, q.b) : q.b
+          : audio ? SCREEN_AUDIO : game ? Math.min(GAME_SCREEN, q.b) : screenRate(q.b, this.sent.screen.size)
         const pri = k === 'mic' ? 'high' : k === 'screen' ? 'medium' : 'low'
         const fps = k === 'screen' && !audio ? q.f : undefined
         if (e.maxBitrate === rate && e.networkPriority === pri && e.maxFramerate === fps) continue

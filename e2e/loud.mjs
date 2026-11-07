@@ -30,6 +30,10 @@ await b.getByRole('button', {name: 'Katıl'}).click()
 await a.waitForFunction(() => window.telsiz.session.peers.size === 1, null, {timeout: 60000})
 for (const p of [a, b]) await p.evaluate(() => { window.telsiz.go({kind: 'voice'}); return window.telsiz.joinVoice() })
 await a.evaluate(() => window.telsiz.call.toggleScreen(true))
+// Yayın izlemeyi seçene gider: önce b'ye akış gelmez, düğmeye basınca gelir.
+await b.waitForTimeout(3000)
+check(!(await b.evaluate(() => [...window.telsiz.call.remote.values()].some(r => r.screen))), 'izlemeden yayın gelmiyor')
+await b.getByRole('button', {name: /ekranını izle/}).click()
 await b.waitForFunction(() => [...window.telsiz.call.remote.values()].some(r => r.screen?.getAudioTracks().length), null, {timeout: 20000})
 const peak = () => b.evaluate(async () => {
   const st = [...window.telsiz.call.remote.values()].find(r => r.screen).screen

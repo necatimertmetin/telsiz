@@ -130,3 +130,6 @@ export function decodeBackup(input: string): Backup | null {
     return {uid: b.uid, name: b.name.slice(0, 32), groups, ...(color ? {color} : {}), ...(validJwk(b.keys) ? {keys: b.keys} : {})}
   } catch { return null }
 }
+
+// Ekran yayınında toplam yükleme: seçilen kalitenin en fazla 1.5 katı. İzleyen çoğaldıkça kişi başı düşer, 1 Mb/sn altına inmez.
+export const screenRate = (full: number, viewers: number) => viewers <= 1 ? full : Math.max(Math.min(full, 1_000_000), Math.min(full, Math.round(full * 1.5 / viewers)))

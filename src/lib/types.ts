@@ -44,7 +44,7 @@ export type View = {title: string; channels: Channel[]; msgs: Map<string, Msg[]>
 
 // room: hangi ses odasında. Boş ya da yok ise ana oda (Telsiz odası); eski sürümler hep orada görünür.
 // cs: CS2 maç durumu (Windows uygulaması, isteğe bağlı). Eski sürümler bu alanı yok sayar.
-export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean; sAudio?: boolean; room?: string; cs?: CsState}
+export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean; sAudio?: boolean; room?: string; cs?: CsState; w?: string[]}
 export type Other = {uid: string; name: string; voice: VoiceState}
 export type Presence = {uid: string; name: string; voice: VoiceState; others?: Other[]}
 export type Profile = {color?: string; avatar?: string; look?: 'monster' | 'badge' | 'pixel' | 'letter'; seed?: number; icon?: number}

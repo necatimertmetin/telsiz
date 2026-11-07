@@ -30,6 +30,7 @@ await w.getByRole('button', {name: 'Sesli', exact: true}).waitFor({timeout: 8000
 console.log(await w.getByRole('button', {name: 'Sesli', exact: true}).getAttribute('aria-pressed') === 'true' ? 'OK   sesli seçim açık geliyor' : 'FAIL sesli seçim kapalı')
 await w.locator('.sources button').first().click()
 await w.waitForFunction(() => window.telsiz.call.streams.screen, null, {timeout: 15000})
+await p.getByRole('button', {name: /ekranını izle/}).click()
 await p.waitForFunction(() => [...window.telsiz.call.remote.values()].some(r => r.screen?.getAudioTracks().length), null, {timeout: 20000})
 console.log('OK   izleyiciye ses izi ulaştı')
 await p.locator('.tilestat').waitFor({timeout: 12000})

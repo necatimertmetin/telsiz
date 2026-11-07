@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, isVirtualMic, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, worstStat} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, isVirtualMic, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, screenRate, worstStat} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -106,5 +106,15 @@ describe('backup code', () => {
     expect(decodeBackup('selam')).toBeNull()
     expect(decodeBackup('telsiz1.@@@')).toBeNull()
     expect(decodeBackup(encodeBackup({...b, groups: [{code: 'x', title: 'y'}]}))?.groups).toEqual([])
+  })
+})
+
+describe('screenRate', () => {
+  it('splits upload among viewers but keeps a floor', () => {
+    expect(screenRate(6_000_000, 1)).toBe(6_000_000)
+    expect(screenRate(6_000_000, 2)).toBe(4_500_000)
+    expect(screenRate(6_000_000, 4)).toBe(2_250_000)
+    expect(screenRate(6_000_000, 20)).toBe(1_000_000)
+    expect(screenRate(800_000, 5)).toBe(800_000)
   })
 })

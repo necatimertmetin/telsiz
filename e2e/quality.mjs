@@ -41,7 +41,9 @@ const join = async name => {
   await p.getByLabel('Davet linki ya da kod').fill(`https://x/#/katil/${code}`)
   await p.getByRole('button', {name: 'Katıl'}).click()
   await p.waitForFunction(() => window.telsiz.session.peers.size >= 1, null, {timeout: 60000})
-  await p.evaluate(() => { window.telsiz.go({kind: 'voice'}); return window.telsiz.joinVoice() })
+  const host = await a.evaluate(() => window.telsiz.me.uid)
+  await p.waitForFunction(h => [...window.telsiz.session.peers.values()].some(q => q.uid === h), host, {timeout: 60000})
+  await p.evaluate(async h => { window.telsiz.go({kind: 'voice'}); await window.telsiz.joinVoice(); window.telsiz.call.watch(h, true) }, host)
   return p
 }
 const first = await join('Ali')
@@ -65,5 +67,7 @@ console.log('1 izleyici', JSON.stringify(await sample()))
 const more = [await join('Veli'), await join('Ayse')]
 await a.waitForFunction(() => window.telsiz.session.peers.size === 3, null, {timeout: 60000})
 await new Promise(r => setTimeout(r, 16000))
-console.log('3 izleyici', JSON.stringify(await sample()))
+const three = await sample()
+console.log('3 izleyici', JSON.stringify(three))
+console.log(three.length === 3 && three.every(x => x.mbps < 3.6) ? 'OK   3 izleyicide kişi başı ~3 Mb/sn' : 'FAIL 3 izleyici bütçesi')
 await browser.close()
