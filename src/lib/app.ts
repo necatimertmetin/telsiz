@@ -514,7 +514,7 @@ class App {
     for (const s of this.sessions.values()) {
       const r = this.retry.get(s.code)
       if (s.peers.size > 0) { if (r) { this.retry.delete(s.code); this.bump() } continue }
-      if (s.settling || !s.relayOk || (!s.linkError && !s.lost.size)) continue
+      if (s.settling || !s.relayOk || (!s.linkError && ![...s.lost.values()].some(x => x.why !== 'quit'))) continue
       if (!r) { this.retry.set(s.code, {n: 0, at: Date.now()}); this.bump(); continue }
       const wait = App.RETRY[r.n]
       if (wait === undefined || Date.now() - r.at < wait * 1000) continue

@@ -58,6 +58,9 @@ type Incoming = {meta: FileMeta; parts: Blob[]; got: number; source: string}
 type Act = any
 
 // Sadece test: iki kişi birbirine doğrudan bağlanamıyormuş gibi davranır.
+export type LostWhy = 'quit' | 'drop' | 'mine' | 'blocked'
+const relaysUp = () => { try { return Object.values(getRelaySockets() as Record<string, WebSocket>).some(w => w.readyState === 1) } catch { return true } }
+
 function testBlock(uid: string) {
   let block: string | null = null
   try { block = localStorage.getItem('telsiz.block') } catch { /* yok */ }
@@ -90,8 +93,12 @@ export class Session {
   view: View
   linkError = ''
   relayOk = true
-  // Seste benimle olup bağlantısı giden kişiler (uid -> ad, zaman). Geri gelince ya da 10 dk sonra silinir.
-  readonly lost = new Map<string, {name: string; at: number}>()
+  // Seste benimle olup bağlantısı giden kişiler ve sebebi. Geri gelince ya da bir süre sonra silinir.
+  // quit: veda mesajı geldi (uygulamayı kapattı); drop: veda yok (interneti ya da ağı gitti);
+  // mine: o an benim de eşleşme sunucularıyla bağlantım yok; blocked: buluyorum ama doğrudan bağlanamıyorum.
+  readonly lost = new Map<string, {name: string; at: number; why: LostWhy}>()
+  private known = new Map<string, {uid: string; name: string}>() // bağlantı kimliği -> kim (bağlantı gitse de)
+  private byes = new Set<string>()
   // Bulduk ama doğrudan bağlanamadık mı (çoğu zaman ağ engeli, TURN gerekir), yoksa başka bir hata mı.
   get linkKind(): '' | 'nat' | 'other' { return !this.linkError ? '' : /after exchanging SDP|TURN/i.test(this.linkError) ? 'nat' : 'other' }
   voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
@@ -104,7 +111,7 @@ export class Session {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth' | 'tv' | 'move', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth' | 'tv' | 'move' | 'bye', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
@@ -131,19 +138,28 @@ export class Session {
   constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[], private identity: Promise<Identity>) {
     this.view = materialize([], fallbackTitle)
     setTimeout(() => this.hooks.changed(), SETTLE_MS + 50)
+    // Veda, kütüphanenin kendi kapanış temizliğinden önce gitmeli: o bağlantıları hemen kapatır.
+    // Bu yüzden dinleyici joinRoom'dan önce kaydedilir (aynı olayda kayıt sırasıyla çalışır).
+    addEventListener('beforeunload', this.byeOnUnload)
     this.room = joinRoom(
       {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, rtcPolyfill: LowLatencyPC, ...(turn.length ? {turnConfig: turn} : {})} as never,
       code,
       {
-        onJoinError: (d: {error?: string}) => { this.linkError = String(d?.error ?? 'bağlantı kurulamadı'); this.hooks.changed() },
+        onJoinError: (d: {error?: string; peerId?: string}) => {
+          this.linkError = String(d?.error ?? 'bağlantı kurulamadı')
+          const k = d?.peerId ? this.known.get(d.peerId) : undefined
+          if (k && this.linkKind === 'nat' && !this.peerOf(k.uid)) this.lost.set(k.uid, {name: k.name, at: Date.now(), why: 'blocked'})
+          this.hooks.changed()
+        },
         ...testBlock(me.uid),
       } as never,
     )
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'), move: r.makeAction('move'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'), move: r.makeAction('move'), bye: r.makeAction('bye'),
     }
+    this.a.bye.onMessage = (_: unknown, {peerId}: {peerId: string}) => { this.byes.add(peerId) }
     // Takım dağıtma ve yöneticinin sürükleyip taşıması: gönderenin kimliği bağlantıdan bilinir, yetkisi yoksa yok sayılır.
     this.a.move.onMessage = (d: {to?: Record<string, string>}, {peerId}: {peerId: string}) => {
       const by = this.authed.get(peerId)
@@ -204,8 +220,11 @@ export class Session {
     }
     r.onPeerLeave = (peerId: string) => {
       const gone = this.peers.get(peerId)
-      if (gone && this.voice.in && gone.voice.in && !this.leaving && ![...this.peers].some(([id, p]) => id !== peerId && p.uid === gone.uid))
-        this.lost.set(gone.uid, {name: gone.name, at: Date.now()})
+      if (gone && this.voice.in && gone.voice.in && !this.leaving && ![...this.peers].some(([id, p]) => id !== peerId && p.uid === gone.uid)) {
+        const why: LostWhy = this.byes.has(peerId) ? 'quit' : !navigator.onLine || !relaysUp() ? 'mine' : 'drop'
+        this.lost.set(gone.uid, {name: gone.name, at: Date.now(), why})
+      }
+      this.byes.delete(peerId)
       this.peers.delete(peerId); this.typing.delete(peerId); this.stats.delete(peerId)
       this.authed.delete(peerId); this.waiting.delete(peerId)
       this.onPeerLeft?.(peerId)
@@ -441,6 +460,7 @@ export class Session {
     const room = typeof p.voice.room === 'string' && p.voice.room.length <= 32 ? p.voice.room : ''
     const next = {uid: p.uid, name: p.name.slice(0, 40), voice: withCs({...p.voice, room}), others}
     this.peers.set(peerId, next)
+    this.known.set(peerId, {uid: next.uid, name: next.name})
     this.lost.delete(next.uid)
     // Komşunun kendi durumu değişince diğerlerine de duyurulur; sadece 'others' değişince
     // duyurulmaz, yoksa iki kişi birbirine sonsuza dek haber verir.
@@ -683,12 +703,18 @@ export class Session {
       this.stats.set(peerId, s)
     }
     const now = Date.now()
-    for (const [k, v] of this.lost) if (now - v.at > 10 * 60_000) this.lost.delete(k)
+    for (const [k, v] of this.lost) if (now - v.at > (v.why === 'quit' ? 2 : 10) * 60_000) this.lost.delete(k)
     for (const [k, v] of this.typing) if (v.until < now) this.typing.delete(k)
     this.hooks.changed()
   }
 
+  // Uygulama kapanırken arkadaşlara haber: "bağlantısı koptu" yerine "uygulamayı kapattı" görünsün.
+  sayBye() { try { void this.a.bye.send(1).catch(() => {}) } catch { /* bağlantı yok */ } }
+  private byeOnUnload = () => this.sayBye()
+  private peerOf(uid: string) { return [...this.peers.values()].some(p => p.uid === uid) }
+
   async leave() {
+    removeEventListener('beforeunload', this.byeOnUnload)
     clearInterval(this.statTimer)
     if (this.csTimer) clearTimeout(this.csTimer)
     for (const u of this.urls.values()) URL.revokeObjectURL(u)

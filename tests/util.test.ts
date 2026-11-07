@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, isVirtualMic, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, screenRate, worstStat} from '../src/lib/util'
+import {decodeBackup, encodeBackup, fmtDay, fmtScreenStat, fmtSize, isNewer, isVirtualMic, linkify, lowLatencySdp, mentions, newRoomCode, orderCodecs, parseInvite, previewKind, screenRate, worstStat, genitive} from '../src/lib/util'
 
 describe('invites', () => {
   it('parses a raw code and a full link', () => {
@@ -116,5 +116,11 @@ describe('screenRate', () => {
     expect(screenRate(6_000_000, 4)).toBe(2_250_000)
     expect(screenRate(6_000_000, 20)).toBe(1_000_000)
     expect(screenRate(800_000, 5)).toBe(800_000)
+  })
+})
+
+describe('genitive', () => {
+  it('follows vowel harmony', () => {
+    expect(['Elif', 'Burak', 'Ece', 'Oğuz', 'Göksü', 'Ayşe', 'Mert', 'Umut'].map(genitive)).toEqual(["Elif'in", "Burak'ın", "Ece'nin", "Oğuz'un", "Göksü'nün", "Ayşe'nin", "Mert'in", "Umut'un"])
   })
 })

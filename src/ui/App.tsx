@@ -3,11 +3,11 @@ import {faceUrl} from '../lib/faces'
 import {app, useApp} from '../lib/app'
 import {radio} from '../lib/radio'
 import {RadioPanel} from './Radio'
-import type {Session} from '../lib/session'
+import type {LostWhy, Session} from '../lib/session'
 import {can, dmId, isManager, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
 import type {RoomKind, VoiceState} from '../lib/types'
 import {desktop} from '../lib/native'
-import {colorFor, initials, parseInvite} from '../lib/util'
+import {colorFor, genitive, initials, parseInvite} from '../lib/util'
 import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {Modal} from './Modal'
@@ -346,11 +346,19 @@ export function RadioBar() {
   )
 }
 
+// Görüşmeden giden arkadaşın sebebi (Session.lost).
+const LOST_TEXT: Record<LostWhy, (n: string) => string> = {
+  quit: n => `${n} uygulamayı kapattı.`,
+  drop: n => `${genitive(n)} bağlantısı koptu: interneti gitmiş ya da ağı değişmiş olabilir.`,
+  mine: () => 'Senin bağlantın koptu: internetini kontrol et.',
+  blocked: n => `${n} çevrimiçi ama aranızda doğrudan bağlantı kurulamıyor (ağ engeli). İkiniz de uygulamayı kapatıp açın ya da biriniz ağ değiştirsin (Wi-Fi ↔ mobil veri).`,
+}
+
 // Yedek, güncelleme, bağlantı uyarıları: iki arayüzde de sahnenin üstünde.
 export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
   const alone = s.peers.size === 0 && !s.settling
   const offline = !navigator.onLine
-  const lost = [...s.lost.values()].map(x => x.name)
+  const lost = [...s.lost.values()].sort((a, b) => b.at - a.at)
   const retrying = app.reconnecting(s)
   return (
     <>
@@ -365,15 +373,15 @@ export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
       {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
       {!offline && !s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
       {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
-      {alone && (lost.length || s.linkError) ? (
-        <div className="notice warn linknote" role="status">
+      {lost.length > 0 || (alone && s.linkError) ? (
+        <div className={'notice linknote' + (lost.every(x => x.why === 'quit') && lost.length ? '' : ' warn')} role="status">
           <span className="grow">
-            {lost.length ? `${lost.join(', ')} ile bağlantı gitti. ` : 'Bir arkadaşın seni buldu ama aranızda bağlantı kurulamadı. '}
-            {retrying ? 'Kendiliğinden yeniden deneniyor. ' : ''}
-            {lost.length && s.linkKind !== 'nat' ? 'Uygulamayı kapattıysa sorun yok; kapatmadıysa ikiniz de uygulamayı kapatıp açın.' : 'İkiniz de uygulamayı kapatıp açın ya da biriniz ağ değiştirsin (Wi-Fi ↔ mobil veri).'}
-            {!retrying && ' Sürerse: Ayarlar > Yedek ve cihaz > Gelişmiş.'}
+            {[...new Set(lost.map(x => LOST_TEXT[x.why](x.name)))].map(m => <span key={m}>{m} </span>)}
+            {!lost.length && 'Bir arkadaşın seni buldu ama aranızda doğrudan bağlantı kurulamıyor (ağ engeli). İkiniz de uygulamayı kapatıp açın ya da biriniz ağ değiştirsin (Wi-Fi ↔ mobil veri). '}
+            {alone && retrying && 'Kendiliğinden yeniden deneniyor. '}
+            {alone && !retrying && (s.linkError || lost.some(x => x.why === 'blocked')) && 'Sürerse: Ayarlar > Yedek ve cihaz > Gelişmiş.'}
           </span>
-          <button className="btn" onClick={() => void app.reconnect(s.code)}>Şimdi dene</button>
+          {alone && lost.some(x => x.why !== 'quit') || (alone && !lost.length) ? <button className="btn" onClick={() => void app.reconnect(s.code)}>Şimdi dene</button> : null}
         </div>
       ) : alone && <div className="notice">Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.</div>}
     </>

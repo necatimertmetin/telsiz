@@ -133,3 +133,11 @@ export function decodeBackup(input: string): Backup | null {
 
 // Ekran yayınında toplam yükleme: seçilen kalitenin en fazla 1.5 katı. İzleyen çoğaldıkça kişi başı düşer, 1 Mb/sn altına inmez.
 export const screenRate = (full: number, viewers: number) => viewers <= 1 ? full : Math.max(Math.min(full, 1_000_000), Math.min(full, Math.round(full * 1.5 / viewers)))
+
+// Türkçe tamlayan eki: Elif'in, Burak'ın, Ece'nin, Oğuz'un. Son ünlüye göre, ünlüyle bitiyorsa araya n girer.
+export function genitive(name: string) {
+  const low = name.toLocaleLowerCase('tr-TR'), V = 'aeıioöuü'
+  const v = [...low].reverse().find(c => V.includes(c)) ?? 'e'
+  const h = ({a: 'ı', ı: 'ı', o: 'u', u: 'u', e: 'i', i: 'i', ö: 'ü', ü: 'ü'} as Record<string, string>)[v]
+  return `${name}'${V.includes(low.slice(-1)) ? 'n' : ''}${h}n`
+}
