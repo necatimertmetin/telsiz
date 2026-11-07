@@ -17,5 +17,6 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   radioTitle: url => ipcRenderer.invoke('radio-title', url),
   setPipAvail: on => ipcRenderer.send('pip-avail', on),
   exitPip: () => ipcRenderer.send('pip-exit'),
+  setTitleBar: o => ipcRenderer.send('titlebar', o),
   onPipMode: cb => ipcRenderer.on('pip-mode', (_e, on) => cb(on)),
 })

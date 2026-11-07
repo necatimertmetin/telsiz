@@ -117,7 +117,7 @@ class App {
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
   roomChatOpen = false
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean; theme: string; doodle: string | boolean; font: string; size: number; hideSide: boolean; hideMembers: boolean}>('prefs', {hideSide: false, hideMembers: false, theme: 'gece', doodle: 'off', font: 'barlow', size: 1, radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean; theme: string; doodle: string | boolean; font: string; size: number; hideSide: boolean; hideMembers: boolean; ui: 'frekans' | 'klasik'}>('prefs', {ui: 'klasik', hideSide: false, hideMembers: false, theme: 'gece', doodle: 'off', font: 'barlow', size: 1, radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
@@ -218,7 +218,8 @@ class App {
     return true
   }
 
-  private setPttDown(d: boolean) {
+  // Ekrandaki "Bas konuş" düğmesi de bunu kullanır.
+  setPttDown(d: boolean) {
     const c = this.liveCall()
     if (c) c.pttDown = d
   }

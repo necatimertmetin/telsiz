@@ -28,6 +28,7 @@ export type DesktopBridge = {
   exitPip?(): void
   onPipMode?(cb: (on: boolean) => void): void
   radioTitle?(url: string): Promise<string | null>
+  setTitleBar?(o: {color: string; symbolColor: string}): void
 }
 declare global {
   interface Window {

@@ -63,6 +63,12 @@ function setOverlay(people) {
 // Küçük pencere: simge durumuna küçültünce izlenecek görüntü varsa (YouTube, ekran, kamera) pencere küçülüp
 // sağ altta üstte kalır, sayfa sadece görüntüyü gösterir. Görüntü yoksa normal küçülür. Büyüt eski boyuta döner.
 let pipAvail = false, pipBounds = null
+// Windows başlık çubuğu: kendi çubuğu gizli, küçült/büyüt/kapat düğmeleri sayfanın üstüne biner (Snap korunur).
+// Renkleri sayfa temaya göre yollar. Küçük pencerede düğmeler alçalır.
+const WIN = process.platform === 'win32'
+const TB_H = 48, TB_PIP = 32
+let tb = {color: '#14161a', symbolColor: '#e8e6e1'}
+const applyTb = () => { if (WIN && win) try { win.setTitleBarOverlay({...tb, height: pipBounds ? TB_PIP : TB_H}) } catch { /* eski Electron */ } }
 function enterPip() {
   if (!win || pipBounds || !pipAvail) return
   pipBounds = win.getNormalBounds()
@@ -72,6 +78,7 @@ function enterPip() {
   win.setMinimumSize(260, 180)
   win.setBounds({x: a.x + a.width - w - 16, y: a.y + a.height - h - 16, width: w, height: h})
   win.setAlwaysOnTop(true, 'floating')
+  applyTb()
   win.webContents.send('pip-mode', true)
 }
 function exitPip() {
@@ -81,6 +88,7 @@ function exitPip() {
   if (win.isMinimized()) win.restore()
   win.setBounds(pipBounds)
   pipBounds = null
+  applyTb()
   win.webContents.send('pip-mode', false)
 }
 
@@ -159,6 +167,7 @@ function createWindow() {
     width: 1200, height: 780, minWidth: 420, minHeight: 500,
     backgroundColor: '#14161a', title: 'Telsiz', autoHideMenuBar: true,
     icon: path.join(__dirname, 'icon.png'),
+    ...(WIN ? {titleBarStyle: 'hidden', titleBarOverlay: {...tb, height: TB_H}} : {}),
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, backgroundThrottling: false},
   })
   win.setMenu(null)
@@ -205,6 +214,12 @@ app.whenReady().then(() => {
   ipcMain.on('overlay', (_e, people) => setOverlay(people))
   ipcMain.on('pip-avail', (_e, on) => { pipAvail = !!on; if (!pipAvail) exitPip() })
   ipcMain.on('pip-exit', () => exitPip())
+  ipcMain.on('titlebar', (_e, o) => {
+    const hex = c => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)
+    if (!hex(o?.color) || !hex(o?.symbolColor)) return
+    tb = {color: o.color, symbolColor: o.symbolColor}
+    applyTb()
+  })
 
   createWindow()
 

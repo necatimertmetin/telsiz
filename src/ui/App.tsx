@@ -13,6 +13,8 @@ import {Icon} from './Icon'
 import {Modal} from './Modal'
 import {Settings} from './Settings'
 import {MiniCall, pipMedia, VoiceStage} from './Voice'
+import {Frekans} from './Frekans'
+import {syncTitlebar} from '../lib/titlebar'
 
 export const PUBLIC_URL = 'https://necatimertmetin.github.io/telsiz/'
 
@@ -153,59 +155,75 @@ function NewRoom({s, onClose}: {s: Session; onClose: () => void}) {
 }
 
 // Yönetici (ya da kurucu) çevrimiçi birini sol taraftaki bir ses odasına sürükler: sesteyse oraya geçer, değilse çağrı alır.
-const DRAG = 'application/x-telsiz-uid'
-function dragProps(s: Session, uid: string, name: string, inVoice: boolean) {
+export const DRAG = 'application/x-telsiz-uid'
+export function dragProps(s: Session, uid: string, name: string, inVoice: boolean) {
   if (uid === app.me.uid || !isManager(s.view, app.me.uid)) return {}
   return {draggable: true, onDragStart: (e: DragEvent) => { e.dataTransfer.setData(DRAG, JSON.stringify({uid, name, inVoice})); e.dataTransfer.effectAllowed = 'move' }}
 }
 
-type VUser = {id: string; uid: string; name: string; v: VoiceState}
+export type VUser = {id: string; uid: string; name: string; v: VoiceState}
 
-function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void; onNew: () => void}) {
-  const call = app.call!
+// Ses odaları ve içindekiler: klasik yan menü ve Frekans kadranı aynı listeyi kullanır.
+export function roomRows(s: Session, onNavigate: () => void) {
   const all: VUser[] = [
     ...(s.voice.in ? [{id: 'me', uid: app.me.uid, name: app.me.name, v: s.voice}] : []),
     ...[...s.peers].filter(([, p]) => p.voice.in).map(([id, p]) => ({id, uid: p.uid, name: p.name, v: p.voice})),
     ...[...s.indirect().values()].filter(u => u.voice.in).map(u => ({id: 'r:' + u.uid, uid: u.uid, name: u.name, v: u.voice})),
   ]
   const known = new Set(s.view.rooms.map(r => r.id))
-  const rooms = [{id: '', title: MAIN_ROOM, kind: 'voice' as RoomKind}, ...s.view.rooms]
-  const here = app.route.kind === 'voice' ? app.shownRoom(s).id : null
+  const rooms = [{id: '', title: MAIN_ROOM, kind: 'voice' as RoomKind, sid: undefined as string | undefined}, ...s.view.rooms]
+  return rooms.map(r => {
+    // Henüz bilinmeyen odadaki kişi ana odada gösterilir.
+    const users = all.filter(u => (known.has(u.v.room ?? '') ? u.v.room ?? '' : '') === r.id)
+    const n = app.unread(s, roomChat(r.id))
+    // Radyo odasında istasyon seçiliyse ve biri dinliyorsa (ya da sen arkada dinliyorsan) satır çalıyor görünür.
+    const station = r.kind === 'radio' ? s.view.stations.find(x => x.id === r.sid) : undefined
+    const bgHere = !!station && app.radioBg?.code === s.code && app.radioBg.sid === station.id && radio.playing
+    const onAir = !!station && (users.length > 0 || bgHere)
+    const mine = s.voice.in && (s.voice.room ?? '') === r.id
+    const playing = onAir ? ((mine || bgHere) && radio.title ? radio.title : station!.title) : null
+    const open = () => {
+      // Seste başka odadaysan radyo odasına tıklamak seni taşımaz, radyoyu olduğun yerden açar.
+      if (r.kind === 'radio' && s.voice.in && !mine) { app.peekRadio(r.id); onNavigate(); return }
+      void app.enterRoom(r.id); onNavigate()
+    }
+    return {r, users, n, onAir, mine, playing, open}
+  })
+}
+
+// Yönetici birini odaya bıraktığında.
+export function useRoomDrop(s: Session) {
   const [over, setOver] = useState<string | null>(null)
-  const drop = (e: DragEvent, r: {id: string; title: string}) => {
-    setOver(null)
-    const raw = e.dataTransfer.getData(DRAG)
-    if (!raw) return
-    e.preventDefault()
-    const u = JSON.parse(raw) as {uid: string; name: string; inVoice: boolean}
-    s.sendMove({[u.uid]: r.id})
-    app.showToast(u.inVoice ? `${u.name}, ${r.title} odasına alındı` : `${u.name}, ${r.title} odasına çağrıldı`)
-  }
+  const props = (r: {id: string; title: string}) => ({
+    onDragOver: (e: DragEvent) => { if (e.dataTransfer.types.includes(DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(r.id) } },
+    onDragLeave: () => setOver(o => o === r.id ? null : o),
+    onDrop: (e: DragEvent) => {
+      setOver(null)
+      const raw = e.dataTransfer.getData(DRAG)
+      if (!raw) return
+      e.preventDefault()
+      const u = JSON.parse(raw) as {uid: string; name: string; inVoice: boolean}
+      s.sendMove({[u.uid]: r.id})
+      app.showToast(u.inVoice ? `${u.name}, ${r.title} odasına alındı` : `${u.name}, ${r.title} odasına çağrıldı`)
+    },
+  })
+  return {over, props}
+}
+
+function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void; onNew: () => void}) {
+  const call = app.call!
+  const here = app.route.kind === 'voice' ? app.shownRoom(s).id : null
+  const {over, props} = useRoomDrop(s)
   return (
     <>
       <div className="sect"><span>Ses odaları{s.settling && <span className="seeking"> · bağlanıyor</span>}</span> {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={onNew}><Icon n="plus" s={15} /></button>}</div>
-      {rooms.map(r => {
-        // Henüz bilinmeyen odadaki kişi ana odada gösterilir.
-        const users = all.filter(u => (known.has(u.v.room ?? '') ? u.v.room ?? '' : '') === r.id)
-        const n = app.unread(s, roomChat(r.id))
-        // Radyo odasında istasyon seçiliyse ve biri dinliyorsa (ya da sen arkada dinliyorsan) satır çalıyor görünür.
-        const station = r.kind === 'radio' ? s.view.stations.find(x => x.id === r.sid) : undefined
-        const bgHere = !!station && app.radioBg?.code === s.code && app.radioBg.sid === station.id && radio.playing
-        const onAir = !!station && (users.length > 0 || bgHere)
-        const mine = s.voice.in && (s.voice.room ?? '') === r.id
-        const open = () => {
-          // Seste başka odadaysan radyo odasına tıklamak seni taşımaz, radyoyu olduğun yerden açar.
-          if (r.kind === 'radio' && s.voice.in && !mine) { app.peekRadio(r.id); onNavigate(); return }
-          void app.enterRoom(r.id); onNavigate()
-        }
+      {roomRows(s, onNavigate).map(({r, users, n, onAir, playing, open}) => {
         return (
           <div key={r.id}>
-            <button className={'chan' + (here === r.id ? ' on' : '') + (over === r.id ? ' dropon' : '') + (onAir ? ' onair' : '')} onClick={open}
-              onDragOver={e => { if (e.dataTransfer.types.includes(DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(r.id) } }}
-              onDragLeave={() => setOver(o => o === r.id ? null : o)} onDrop={e => drop(e, r)}>
+            <button className={'chan' + (here === r.id ? ' on' : '') + (over === r.id ? ' dropon' : '') + (onAir ? ' onair' : '')} onClick={open} {...props(r)}>
               {onAir ? <span className="eq" aria-label="Radyo çalıyor"><i /><i /><i /></span> : <Icon n={KIND_ICON[r.kind]} s={17} />}<span className="ell">{r.title}</span>{n > 0 && <span className="badge in">{n}</span>}{users.length > 0 && <span className="count">{users.length}</span>}
             </button>
-            {onAir && <button className="radiosub" onClick={() => app.peekRadio(r.id)} title="Radyoyu aç"><span className="ell">{(mine || bgHere) && radio.title ? radio.title : station!.title}</span></button>}
+            {playing && <button className="radiosub" onClick={() => app.peekRadio(r.id)} title="Radyoyu aç"><span className="ell">{playing}</span></button>}
             {users.map(u => (
               <div key={u.id} className="vuser" {...dragProps(s, u.uid, u.name, true)}>
                 <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
@@ -238,7 +256,7 @@ function Rail({onAdd}: {onAdd: () => void}) {
   )
 }
 
-function people(s: Session) {
+export function people(s: Session) {
   const seen = new Set<string>()
   const online: {key: string; uid: string; name: string; peerId?: string}[] = [{key: 'me', uid: app.me.uid, name: app.me.name}]
   seen.add(app.me.uid)
@@ -294,15 +312,7 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: S
         <VoiceRooms s={s} onNavigate={onNavigate} onNew={onNewRoom} />
         <div className="onlymobile"><Members s={s} onOpen={onNavigate} /></div>
       </div>
-      {live && app.radioBg && app.roomOf(live, live.voice.room ?? '').kind !== 'radio' && (
-        <div className="radiobar">
-          <Icon n="radio" s={16} />
-          <span className="livetxt"><b>Radyo arkada</b><span className="ell">{radio.title ?? live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
-          <input type="range" min={0} max={1} step={.01} value={app.prefs.radioVol} aria-label="Radyo sesi" title={`%${Math.round(app.prefs.radioVol * 100)}`} onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
-          <button className="ico sm" aria-label="İstasyonu değiştir" title="İstasyonu değiştir" onClick={() => { if (app.radioBg) app.peekRadio(app.radioBg.rid) }}><Icon n="radio" s={15} /></button>
-          <button className="ico sm" aria-label="Radyoyu kapat" title="Radyoyu kapat" onClick={() => app.stopRadioBg()}><Icon n="x" s={15} /></button>
-        </div>
-      )}
+      <RadioBar />
       {live && liveCall && (
         <div className="livebar">
           <button className="livetxt" onClick={() => { app.select(live.code); app.go({kind: 'voice'}); onNavigate() }}><b>Seste</b><span className="ell">{live.view.title} · {app.roomOf(live, live.voice.room ?? '').title}</span></button>
@@ -320,12 +330,46 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: S
   )
 }
 
-function openDm(uid: string, onOpen?: () => void) {
+// Seste başka odadayken arkada çalan radyo.
+export function RadioBar() {
+  const live = app.liveSession()
+  if (!live || !app.radioBg || app.roomOf(live, live.voice.room ?? '').kind === 'radio') return null
+  return (
+    <div className="radiobar">
+      <Icon n="radio" s={16} />
+      <span className="livetxt"><b>Radyo arkada</b><span className="ell">{radio.title ?? live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
+      <input type="range" min={0} max={1} step={.01} value={app.prefs.radioVol} aria-label="Radyo sesi" title={`%${Math.round(app.prefs.radioVol * 100)}`} onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
+      <button className="ico sm" aria-label="İstasyonu değiştir" title="İstasyonu değiştir" onClick={() => { if (app.radioBg) app.peekRadio(app.radioBg.rid) }}><Icon n="radio" s={15} /></button>
+      <button className="ico sm" aria-label="Radyoyu kapat" title="Radyoyu kapat" onClick={() => app.stopRadioBg()}><Icon n="x" s={15} /></button>
+    </div>
+  )
+}
+
+// Yedek, güncelleme, bağlantı uyarıları: iki arayüzde de sahnenin üstünde.
+export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
+  const alone = s.peers.size === 0 && !s.settling
+  const offline = !navigator.onLine
+  return (
+    <>
+      {!app.backupSaved && <button className="backupbar" onClick={onSettings}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
+      {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
+      {offline && <div className="notice warn">İnternet bağlantın yok. Bağlanınca arkadaşların ve mesajlar kendiliğinden gelir.</div>}
+      {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
+      {!offline && !s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
+      {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
+      {alone && (
+        <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
+      )}
+    </>
+  )
+}
+
+export function openDm(uid: string, onOpen?: () => void) {
   app.go({kind: 'text', ch: dmId(app.me.uid, uid)})
   onOpen?.()
 }
 
-function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
+export function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
   const {online, offline} = people(s)
   return (
     <>
@@ -390,11 +434,27 @@ function tellPip(on: boolean) {
   desktop()?.setPipAvail?.(on)
 }
 
+// Frekans şimdilik geniş ekranda; dar pencerede ve telefonda klasik görünüm kalır.
+const WIDE = '(min-width: 900px)'
+function useWide() {
+  const [w, setW] = useState(() => matchMedia(WIDE).matches)
+  useEffect(() => {
+    const m = matchMedia(WIDE), f = () => setW(m.matches)
+    m.addEventListener('change', f)
+    return () => m.removeEventListener('change', f)
+  }, [])
+  return w
+}
+
+export type ModalKind = 'add' | 'invite' | 'settings' | 'private' | 'room'
+
 export function App() {
   useApp()
   const [modal, setModal] = useState<'add' | 'invite' | 'settings' | 'private' | 'room' | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [searching, setSearching] = useState(false)
+  const wide = useWide()
+  useEffect(syncTitlebar)
   const unread = [...app.sessions.values()].reduce((n, x) => n + app.unreadGroup(x), 0)
   useEffect(() => { document.title = unread ? `(${unread}) Telsiz` : 'Telsiz' }, [unread])
   useEffect(() => {
@@ -420,11 +480,32 @@ export function App() {
   const title = route.kind === 'voice' ? app.shownRoom(s).title
     : isDm(route.ch) ? '@ ' + chatName(s, route.ch)
     : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
-  const alone = s.peers.size === 0 && !s.settling
-  const offline = !navigator.onLine
   const liveCall = app.liveCall()
   tellPip(!!(live && liveCall && pipMedia(live, liveCall)))
-  if (app.pipMode && live && liveCall) return <div className="pipwin"><MiniCall s={live} call={liveCall} full /></div>
+  if (app.pipMode && live && liveCall) return <div className="pipwin"><div className="wcostrip pipdrag" /><MiniCall s={live} call={liveCall} full /></div>
+
+  const overlays = <>
+      {app.radioPeek !== null && (() => {
+        const r = s.view.rooms.find(x => x.id === app.radioPeek && x.kind === 'radio')
+        return r && <Modal title={r.title} wide onClose={() => app.peekRadio(null)}><RadioPanel s={s} room={r} /></Modal>
+      })()}
+      {modal === 'add' && <Modal title="Grup ekle" onClose={() => setModal(null)}><GroupForm onDone={() => setModal(null)} /></Modal>}
+      {modal === 'invite' && <Invite s={s} onClose={() => setModal(null)} />}
+      {modal === 'settings' && <Settings s={s} onClose={() => setModal(null)} />}
+      {modal === 'private' && <NewPrivate s={s} onClose={() => setModal(null)} />}
+      {modal === 'room' && <NewRoom s={s} onClose={() => setModal(null)} />}
+      <SourcePicker />
+      {ring && (
+        <div className="ring" role="alert">
+          <Icon n="bell" /><span className="grow"><b>{ring.name}</b> {ring.text ?? 'seni sese çağırıyor'} · {ring.title}</span>
+          <button className="btn pri" onClick={() => { app.select(ring.code); const room = ring.room ?? ''; app.ring = null; app.voiceRoom = room; void app.joinVoice(false, false, room) }}>Katıl</button>
+          <button className="ico" aria-label="Kapat" onClick={() => { app.ring = null; app.bump() }}><Icon n="x" /></button>
+        </div>
+      )}
+      {app.toast && <div className="toast" role="status">{app.toast}</div>}
+  </>
+
+  if (app.prefs.ui === 'frekans' && wide) return <Frekans s={s} onModal={setModal}>{overlays}</Frekans>
 
   return (
     <div className={'shell' + (drawer ? ' drawer' : '') + (app.prefs.hideSide ? ' noside' : '') + (app.prefs.hideMembers ? ' nomembers' : '')}>
@@ -446,38 +527,12 @@ export function App() {
           <button className="ico" title="Davet et" aria-label="Davet et" onClick={() => setModal('invite')}><Icon n="link" /></button>
           <button className="ico onlyxl" title={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-label={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-pressed={!app.prefs.hideMembers} onClick={() => { app.prefs.hideMembers = !app.prefs.hideMembers; app.savePrefs() }}><Icon n="users" /></button>
         </header>
-        {!app.backupSaved && <button className="backupbar" onClick={() => setModal('settings')}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
-        {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
-        {offline && <div className="notice warn">İnternet bağlantın yok. Bağlanınca arkadaşların ve mesajlar kendiliğinden gelir.</div>}
-        {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
-        {!offline && !s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
-        {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
-        {alone && (
-          <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
-        )}
+        <Notices s={s} onSettings={() => setModal('settings')} />
         {app.route.kind === 'text' ? <Chat key={s.code + app.route.ch} s={s} ch={app.route.ch} /> : <VoiceStage s={s} call={app.call!} />}
         {live && app.liveCall() && (live !== s || app.route.kind === 'text') && <MiniCall s={live} call={app.liveCall()!} />}
       </main>
-      <aside className="right"><div className="scroll"><Members s={s} /></div></aside>
-
-      {app.radioPeek !== null && (() => {
-        const r = s.view.rooms.find(x => x.id === app.radioPeek && x.kind === 'radio')
-        return r && <Modal title={r.title} wide onClose={() => app.peekRadio(null)}><RadioPanel s={s} room={r} /></Modal>
-      })()}
-      {modal === 'add' && <Modal title="Grup ekle" onClose={() => setModal(null)}><GroupForm onDone={() => setModal(null)} /></Modal>}
-      {modal === 'invite' && <Invite s={s} onClose={() => setModal(null)} />}
-      {modal === 'settings' && <Settings s={s} onClose={() => setModal(null)} />}
-      {modal === 'private' && <NewPrivate s={s} onClose={() => setModal(null)} />}
-      {modal === 'room' && <NewRoom s={s} onClose={() => setModal(null)} />}
-      <SourcePicker />
-      {ring && (
-        <div className="ring" role="alert">
-          <Icon n="bell" /><span className="grow"><b>{ring.name}</b> {ring.text ?? 'seni sese çağırıyor'} · {ring.title}</span>
-          <button className="btn pri" onClick={() => { app.select(ring.code); const room = ring.room ?? ''; app.ring = null; app.voiceRoom = room; void app.joinVoice(false, false, room) }}>Katıl</button>
-          <button className="ico" aria-label="Kapat" onClick={() => { app.ring = null; app.bump() }}><Icon n="x" /></button>
-        </div>
-      )}
-      {app.toast && <div className="toast" role="status">{app.toast}</div>}
+      <aside className="right"><div className="wcostrip" /><div className="scroll"><Members s={s} /></div></aside>
+      {overlays}
     </div>
   )
 }

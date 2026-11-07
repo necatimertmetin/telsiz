@@ -178,6 +178,12 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <Switch title="Arkadaşların ses efektleri" hint="Ses odasında çalınan efektleri duy" checked={p.sfx} onChange={v => set('sfx', v)} />
       </>
       case 'gorunum': return <>
+        <h4>Arayüz</h4>
+        <div className="days sizes" role="group" aria-label="Arayüz">
+          {([['frekans', 'Frekans'], ['klasik', 'Klasik']] as const).map(([v, n]) => <button key={v} className={p.ui === v ? 'on' : ''} aria-pressed={p.ui === v} onClick={() => set('ui', v)}>{n}</button>)}
+        </div>
+        <p className="dim small">Frekans yeni görünüm, şimdilik geniş ekranda. Telefonda ve dar pencerede klasik görünür.</p>
+        <h4>Tema</h4>
         <div className="themes" role="group" aria-label="Tema">
           {THEMES.map(t => (
             <button key={t.id} aria-pressed={p.theme === t.id} onClick={() => { set('theme', t.id); applyTheme(t.id, p.doodle) }}>
