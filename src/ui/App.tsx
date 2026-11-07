@@ -1,7 +1,7 @@
 import {useEffect, useState, type FormEvent} from 'react'
 import {app, useApp} from '../lib/app'
 import type {Session} from '../lib/session'
-import {dmId, dmOthers, isDm} from '../lib/history'
+import {dmId, dmOthers, isDm, roleName} from '../lib/history'
 import {desktop} from '../lib/native'
 import {colorFor, initials, parseInvite} from '../lib/util'
 import {Chat} from './Chat'
@@ -138,7 +138,7 @@ function people(s: Session) {
   seen.add(app.me.uid)
   for (const [peerId, p] of s.peers) if (!seen.has(p.uid)) { seen.add(p.uid); online.push({key: peerId, uid: p.uid, name: p.name, peerId}) }
   for (const uid of s.indirect().keys()) seen.add(uid)
-  const offline = [...s.view.people].filter(([uid]) => !seen.has(uid)).map(([uid, name]) => ({uid, name}))
+  const offline = [...s.view.people].filter(([uid]) => !seen.has(uid) && !s.view.banned.has(uid)).map(([uid, name]) => ({uid, name}))
   return {online, offline}
 }
 
@@ -234,6 +234,7 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
           <button className="member" key={u.key} disabled={u.key === 'me'} title={u.key === 'me' ? '' : 'Özel mesaj'} onClick={() => openDm(u.uid, onOpen)}>
             <Avatar uid={u.uid} name={u.name} s={30} />
             <span className="ell grow">{u.name}{u.key === 'me' ? ' (sen)' : ''}</span>
+            {roleName(s.view, u.uid) && <span className="role">{roleName(s.view, u.uid)}</span>}
             {p?.voice.in && <Icon n="wave" s={14} />}
             {st?.rtt !== undefined && <span className="ping" title={st.relayed ? 'Aktarma sunucusu üzerinden' : 'Doğrudan bağlı'}>{Math.round(st.rtt)} ms</span>}
           </button>

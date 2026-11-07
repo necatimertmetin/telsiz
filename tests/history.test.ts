@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest'
-import {dmId, dmMembers, dmOthers, dmPartner, materialize, missingFor, validEvent, visibleTo} from '../src/lib/history'
+import {canAccept, canKick, dmId, dmMembers, dmOthers, dmPartner, materialize, missingFor, validEvent, visibleTo} from '../src/lib/history'
 import type {Ev} from '../src/lib/types'
 
 const b = (id: string, ts: number, uid = 'a') => ({id, ts, uid, name: uid.toUpperCase()})
@@ -110,5 +110,55 @@ describe('schedule', () => {
     const s = (id: string, ts: number, time: string): Ev => ({...b(id, ts), t: 'sched', days: [6], time, on: true})
     expect(materialize([s('1', 1, '20:00'), s('2', 2, '21:30')]).sched?.time).toBe('21:30')
     expect(validEvent({...b('1', 1), t: 'sched', days: [9], time: '20:00', on: true})).toBe(false)
+  })
+})
+
+describe('yetkiler', () => {
+  const g: Ev = {...b('0', 0, 'k'), t: 'group', title: 'Grup'}
+  const box = {iv: 'a', ct: 'b', keys: {}}
+  const role = (id: string, ts: number, by: string, target: string, r: 'admin' | 'member'): Ev => ({...b(id, ts, by), t: 'role', target, role: r})
+  const kick = (id: string, ts: number, by: string, target: string): Ev => ({...b(id, ts, by), t: 'kick', target, prev: 'p', box})
+
+  it('kurucu ilk grup olayını yazandır, sonradan ad değiştiren olmaz', () => {
+    const v = materialize([{...b('9', 9, 'x'), t: 'group', title: 'Yeni'}, g])
+    expect(v.owner).toBe('k')
+    expect(v.title).toBe('Yeni')
+  })
+
+  it('rolü sadece kurucu verir', () => {
+    expect(materialize([g, role('1', 1, 'u', 'u', 'admin')]).admins.has('u')).toBe(false)
+    expect(materialize([g, role('1', 1, 'k', 'u', 'admin')]).admins.has('u')).toBe(true)
+    expect(materialize([g, role('1', 1, 'k', 'u', 'admin'), role('2', 2, 'k', 'u', 'member')]).admins.has('u')).toBe(false)
+  })
+
+  it('üye atamaz, yönetici yöneticiyi ve kurucuyu atamaz', () => {
+    const adm = [g, role('1', 1, 'k', 'y', 'admin'), role('2', 2, 'k', 'z', 'admin')]
+    expect(materialize([g, kick('3', 3, 'u', 'v')]).banned.size).toBe(0)
+    expect(materialize([...adm, kick('3', 3, 'y', 'z')]).banned.size).toBe(0)
+    expect(materialize([...adm, kick('3', 3, 'y', 'k')]).banned.size).toBe(0)
+    expect(materialize([...adm, kick('3', 3, 'y', 'u')]).banned.has('u')).toBe(true)
+    expect(materialize([...adm, kick('3', 3, 'k', 'z')]).admins.has('z')).toBe(false)
+    expect(canKick({owner: 'k', admins: new Set(['y'])}, 'y', 'y')).toBe(false)
+  })
+
+  it('atılan yönetici yetkisini kaybeder, geri alınınca yasak kalkar', () => {
+    const evs = [g, role('1', 1, 'k', 'y', 'admin'), kick('2', 2, 'k', 'y'), kick('3', 3, 'y', 'u')]
+    const v = materialize(evs)
+    expect(v.banned.has('u')).toBe(false)
+    expect(v.lastKick).toBe('2')
+    expect(materialize([...evs, role('4', 4, 'k', 'y', 'member')]).banned.has('y')).toBe(false)
+  })
+
+  it('grubu sadece kurucu siler', () => {
+    expect(materialize([g, {...b('1', 1, 'u'), t: 'wipe'}]).wiped).toBe(false)
+    expect(materialize([g, {...b('1', 1, 'k'), t: 'wipe'}]).wiped).toBe(true)
+  })
+
+  it('yetki olayı imzasız kabul edilmez', () => {
+    expect(canAccept(role('1', 1, 'k', 'u', 'admin'))).toBe(false)
+    expect(canAccept({...role('1', 1, 'k', 'u', 'admin'), sig: 'x'})).toBe(true)
+    expect(validEvent(kick('1', 1, 'k', 'u'))).toBe(true)
+    expect(validEvent({...kick('1', 1, 'k', 'u'), prev: ''})).toBe(false)
+    expect(validEvent({...b('1', 1), t: 'role', target: 'u', role: 'kral'})).toBe(false)
   })
 })

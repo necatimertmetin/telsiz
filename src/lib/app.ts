@@ -7,7 +7,7 @@ import {decodeBackup, encodeBackup, isNewer, newRoomCode, randomId} from './util
 
 const latestTag = async (): Promise<string | undefined> =>
   (await fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json()))?.tag_name
-import {loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
+import {codeHash, loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
 import {playSfx} from './sfx'
 import type {Ev, Profile} from './types'
 
@@ -251,6 +251,9 @@ class App {
       pinOf: uid => this.pins[uid],
       pin: (uid, pk) => { this.pins[uid] = pk; save('pins', this.pins) },
       toast: t => this.showToast(t),
+      rekey: (se, code) => void this.moveGroup(se.code, code),
+      removed: (se, text) => void this.leaveGroup(se.code).then(() => this.showToast(text)),
+      absorb: se => this.absorb(se),
     }, this.turnServers(), this.identity)
     this.sessions.set(g.code, s)
     this.calls.set(g.code, new Call(s, () => this.prefs, uid => (this.volumes[uid] ?? 1) * this.prefs.outVol, this.bump, () => this.prefs.gameMode, j => {
@@ -317,15 +320,58 @@ class App {
   }
   unreadGroup(s: Session) { return [...s.view.msgs.keys()].reduce((n, ch) => n + this.unread(s, ch), 0) }
 
-  async leaveGroup(code: string) {
+  // Davet kodu değişince grup yeni odaya taşınır: geçmiş, okunma bilgisi ve ses kaldığı yerden sürer.
+  private async moveGroup(old: string, code: string) {
+    const g = this.groups.find(x => x.code === old), s = this.sessions.get(old)
+    if (!g || !s) return
+    if (this.sessions.has(code)) {
+      await this.sessions.get(code)!.absorbEvents(await db.loadEvents(old))
+      return this.leaveGroup(old, true)
+    }
+    const wasIn = s.voice.in, muted = s.voice.muted, title = s.view.title, active = this.active === old
+    this.calls.get(old)?.leave()
+    await s.leave()
+    this.sessions.delete(old); this.calls.delete(old)
+    await db.moveEvents(old, code)
+    for (const k of Object.keys(this.lastRead)) {
+      if (!k.startsWith(old + ':')) continue
+      this.lastRead[code + k.slice(old.length)] = this.lastRead[k]
+      delete this.lastRead[k]
+    }
+    save('read', this.lastRead)
+    g.code = code; g.title = title
+    save('groups', this.groups)
+    this.open(g)
+    if (active) { this.active = code; try { localStorage.setItem('telsiz.active', code) } catch { /* yok */ } }
+    this.showToast('Davet kodu yenilendi')
+    if (wasIn) {
+      const keep = this.active, route = this.route
+      this.active = code
+      await this.joinVoice(false, muted)
+      this.active = keep; this.route = route
+    }
+    this.bump()
+  }
+
+  // Yeni linkle giren kişinin eski koddaki grubu aynı gruba katılır, listede iki kez durmaz.
+  private async absorb(s: Session) {
+    for (const g of [...this.groups]) {
+      if (g.code === s.code || !s.view.prevs.has(await codeHash(g.code))) continue
+      await s.absorbEvents(await db.loadEvents(g.code))
+      await this.leaveGroup(g.code, true)
+    }
+  }
+
+  async leaveGroup(code: string, keepFiles = false) {
     this.calls.get(code)?.leave()
     const s = this.sessions.get(code)
+    if (s && !keepFiles) for (const m of s.view.byId.values()) if (m.file) void db.deleteFile(m.file.id).catch(() => {})
     await s?.leave()
     this.sessions.delete(code); this.calls.delete(code)
     this.groups = this.groups.filter(g => g.code !== code)
     save('groups', this.groups)
     void db.dropGroup(code)
-    this.active = this.groups[0]?.code ?? null
+    if (this.active === code || !this.active) this.active = this.groups[0]?.code ?? null
     this.bump()
   }
 

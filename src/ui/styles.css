@@ -70,6 +70,16 @@ a{color:var(--acc)}
 .member:hover:not(:disabled){background:var(--bg3)}
 .member:disabled{opacity:1}
 .member.off{opacity:.5}
+.role{font-size:12.5px;color:var(--dim)}
+.roster{display:flex;flex-direction:column;gap:4px}
+.rosterrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:48px}
+.rosterrow .who{flex:1 1 72px;display:flex;flex-direction:column}
+.rosterrow select{width:auto;min-height:44px;padding:0 10px}
+.rosterrow .role.own{color:var(--acc);font-weight:600}
+.rosterrow .btn{min-height:44px}
+.rosterask{display:flex;flex-direction:column;gap:10px;margin-top:6px;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:12px}
+.rosterask .warn{color:var(--acc)}
+.rosterask .acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .seen{text-align:right;padding:2px 16px 0;font-size:12.5px;color:var(--dim)}
 .recbar{display:flex;align-items:center;gap:6px;padding:0 4px;color:var(--tx)}
 .recdot{width:10px;height:10px;border-radius:50%;background:var(--bad);animation:rec 1s infinite alternate}

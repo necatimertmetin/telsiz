@@ -31,6 +31,16 @@ export async function deleteEvents(code: string, ids: string[]) {
   for (const id of ids) t.objectStore('events').delete(`${code}:${id}`)
   return done(t)
 }
+export async function moveEvents(from: string, to: string) {
+  const t = (await db()).transaction('events', 'readwrite')
+  const store = t.objectStore('events')
+  const rows = await req(store.index('g').getAll(from)) as {key: string; e: Ev}[]
+  for (const r of rows) {
+    store.delete(r.key)
+    store.put({key: `${to}:${r.e.id}`, g: to, e: r.e})
+  }
+  return done(t)
+}
 export async function deleteFile(id: string) {
   const t = (await db()).transaction('files', 'readwrite')
   t.objectStore('files').delete(id)

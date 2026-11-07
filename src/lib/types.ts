@@ -15,6 +15,10 @@ export type Ev = Base & (
   | {t: 'sched'; days: number[]; time: string; on: boolean}
   | {t: 'chan'; chId: string; title: string}
   | {t: 'group'; title: string}
+  | {t: 'role'; target: string; role: 'admin' | 'member'}
+  | {t: 'kick'; target: string; prev: string; box: Box}
+  | {t: 'wipe'}
+  | {t: 'hi'}
 )
 
 export type Msg = {
@@ -23,7 +27,9 @@ export type Msg = {
   poll?: Poll; votes: Record<number, string[]>
 }
 export type Channel = {id: string; title: string}
-export type View = {title: string; channels: Channel[]; msgs: Map<string, Msg[]>; byId: Map<string, Msg>; people: Map<string, string>; sched: Sched | null}
+export type View = {title: string; channels: Channel[]; msgs: Map<string, Msg[]>; byId: Map<string, Msg>; people: Map<string, string>; sched: Sched | null
+  owner: string; admins: Set<string>; banned: Map<string, number>; prevs: Set<string>; lastKick: string | null; wiped: boolean
+}
 
 export type VoiceState = {in: boolean; muted: boolean; deaf: boolean; cam: boolean; screen: boolean; sAudio?: boolean}
 export type Other = {uid: string; name: string; voice: VoiceState}

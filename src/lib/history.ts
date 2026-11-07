@@ -53,6 +53,9 @@ export function validEvent(e: unknown): e is Ev {
     case 'sched': return Array.isArray(x.days) && x.days.every(d => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6) && typeof x.time === 'string' && /^\d\d:\d\d$/.test(x.time) && typeof x.on === 'boolean'
     case 'sealed': return str(x.ch, CH_MAX) && isDm(x.ch) && validBox(x.box)
     case 'chan': return str(x.chId, 64) && str(x.title, 40)
+    case 'role': return str(x.target, 64) && (x.role === 'admin' || x.role === 'member')
+    case 'kick': return str(x.target, 64) && str(x.prev, 64) && validBox(x.box)
+    case 'wipe': case 'hi': return true
     case 'group': return str(x.title, 40)
     default: return false
   }
@@ -64,6 +67,8 @@ export const LEGACY_UNTIL = Date.UTC(2026, 10, 10)
 export function canAccept(e: Ev) {
   const ch = (e as {ch?: string}).ch
   if (e.sig ? false : e.ts >= LEGACY_UNTIL) return false
+  // Yetki olayı imzasız olamaz: eski tarih yazarak kural atlanmasın.
+  if (!e.sig && (e.t === 'role' || e.t === 'kick' || e.t === 'wipe')) return false
   return !isDm(ch) || !e.sig || dmMembers(ch!).includes(e.uid)
 }
 
@@ -74,6 +79,12 @@ export const shouldPurge = (m: Ev, del: Ev) => m.uid === del.uid && del.ts >= m.
 
 const order = (a: Ev, b: Ev) => a.ts - b.ts || (a.id < b.id ? -1 : 1)
 
+export const isManager = (v: View, uid: string) => uid === v.owner || v.admins.has(uid)
+export const roleName = (v: View, uid: string) => uid === v.owner ? 'Kurucu' : v.admins.has(uid) ? 'Yönetici' : ''
+// Kurucu atılamaz, yönetici de başka yöneticiyi atamaz.
+export const canKick = (v: Pick<View, 'owner' | 'admins'>, by: string, target: string) =>
+  by !== target && target !== v.owner && (by === v.owner || (v.admins.has(by) && !v.admins.has(target)))
+
 // Tüm durum olay kümesinden türetilir: olaylar hangi sırayla gelirse gelsin herkes aynı sonucu görür.
 export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View {
   const sorted = [...events].sort(order)
@@ -82,6 +93,13 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
   const chans = new Map<string, Channel>([['genel', {id: 'genel', title: 'genel'}]])
   let title = fallbackTitle
   let sched: Sched | null = null
+  // Kurucu grubu kuran kişidir: ilk 'group' olayını yazan. Yetkiler sırayla işlenir, herkes aynı sonucu bulur.
+  const owner = sorted.find(e => e.t === 'group')?.uid ?? sorted[0]?.uid ?? ''
+  const admins = new Set<string>()
+  const banned = new Map<string, number>()
+  const prevs = new Set<string>()
+  let lastKick: string | null = null
+  let wiped = false
   for (const e of sorted) {
     people.set(e.uid, e.name)
     if (e.t === 'msg') {
@@ -112,6 +130,19 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
       chans.set(e.chId, {id: e.chId, title: e.title})
     } else if (e.t === 'group') {
       title = e.title
+    } else if (e.t === 'role') {
+      const unban = e.role === 'member' && banned.has(e.target) && admins.has(e.uid)
+      if (e.uid !== owner && !unban) continue
+      if (e.role === 'admin') admins.add(e.target); else admins.delete(e.target)
+      banned.delete(e.target)
+    } else if (e.t === 'kick') {
+      if (!canKick({owner, admins}, e.uid, e.target)) continue
+      banned.set(e.target, e.ts)
+      admins.delete(e.target)
+      prevs.add(e.prev)
+      lastKick = e.id
+    } else if (e.t === 'wipe') {
+      if (e.uid === owner) wiped = true
     }
   }
   const msgs = new Map<string, Msg[]>()
@@ -119,7 +150,7 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
     if (!msgs.has(m.ch)) msgs.set(m.ch, [])
     msgs.get(m.ch)!.push(m)
   }
-  return {title, channels: [...chans.values()], msgs, byId, people, sched}
+  return {title, channels: [...chans.values()], msgs, byId, people, sched, owner, admins, banned, prevs, lastKick, wiped}
 }
 
 // Karşı tarafta olmayan olaylar: eşitleme iki yönlü çalışır, herkes elindekini gönderir.

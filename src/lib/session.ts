@@ -1,9 +1,9 @@
 import {getRelaySockets, joinRoom, selfId} from 'trystero'
 import {canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
-import {openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
+import {codeHash, openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
-import {lowLatencySdp, orderCodecs, randomId} from './util'
+import {lowLatencySdp, newRoomCode, orderCodecs, parseInvite, randomId} from './util'
 import {screenCodec} from './native'
 import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
 
@@ -46,6 +46,9 @@ export type Hooks = {
   pinOf(uid: string): string | undefined
   pin(uid: string, pk: string): void
   toast(text: string): void
+  rekey(s: Session, code: string): void
+  removed(s: Session, text: string): void
+  absorb(s: Session): Promise<void>
 }
 type Incoming = {meta: FileMeta; parts: Blob[]; got: number; source: string}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,6 +97,7 @@ export class Session {
   private inbox: Promise<unknown> = Promise.resolve()
   private outbox: Promise<unknown> = Promise.resolve()
   private fileCh = new Map<string, string>()
+  private leaving = false
   tv: TvState = TV_EMPTY
   private tvSubs = new Set<() => void>()
 
@@ -180,7 +184,50 @@ export class Session {
     await this.purge()
     this.rebuild()
     if (old.length) this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]})
+    void this.enforce()
   }
+
+  // Silme, atılma ve yeni kod burada uygulanır. Gitmeden önce az beklenir: olay diğerlerine de aktarılsın.
+  private async enforce() {
+    if (this.leaving) return
+    const {view, me} = this
+    const off = (f: () => void) => { this.leaving = true; setTimeout(f, 800) }
+    if (view.wiped) return off(() => this.hooks.removed(this, `${view.title} grubu silindi`))
+    if (view.banned.has(me.uid)) return off(() => this.hooks.removed(this, `${view.title} grubundan çıkarıldın`))
+    const kick = view.lastKick ? this.events.get(view.lastKick) : undefined
+    if (kick?.t === 'kick' && kick.pk && kick.box.keys[me.uid]) {
+      const inner = await openBox(await this.identity, kick.box, me.uid, kick.pk).catch(() => null) as {code?: unknown} | null
+      const code = typeof inner?.code === 'string' ? parseInvite(inner.code) : null
+      if (code && code !== this.code && !this.leaving) return off(() => this.hooks.rekey(this, code))
+    }
+    if (view.prevs.size) await this.hooks.absorb(this)
+  }
+
+  setRole(uid: string, role: 'admin' | 'member') { this.emit({t: 'role', target: uid, role} as never) }
+
+  // Yeni kod kalan üyelere şifreli gider. Atılan kişi kutuyu açamaz, eski kod da boş kalır.
+  async kick(uid: string) {
+    const id = await this.identity
+    const members: Record<string, string> = {}
+    const pk = (u: string) => this.hooks.pinOf(u)
+    for (const u of new Set([this.me.uid, ...this.view.people.keys(), ...this.authed.values()])) {
+      const key = pk(u)
+      if (u !== uid && key && !this.view.banned.has(u) && Object.keys(members).length < 20) members[u] = key
+    }
+    const box = await sealBox(id, {code: newRoomCode()}, members)
+    this.emit({t: 'kick', target: uid, prev: await codeHash(this.code), box} as never)
+    await this.outbox
+    await this.enforce()
+  }
+
+  async wipe() {
+    this.emit({t: 'wipe'} as never)
+    await this.outbox
+    await this.enforce()
+  }
+
+  // Aynı grubun eski kodundaki geçmiş buraya katılır, bildirim çalmaz.
+  absorbEvents(evs: Ev[]) { return this.gotEvents(evs, '', true) }
 
   private rebuild() {
     this.view = materialize(this.plain.values(), this.fallbackTitle)
@@ -203,6 +250,7 @@ export class Session {
     if (!d || typeof d.uid !== 'string' || !validPk(d.pk) || typeof d.sig !== 'string') return
     await this.identity // kendi anahtarım kayıtlı olsun: aynı hesabın diğer cihazı onunla karşılaştırılır
     if (!await verifyText(d.pk, this.proofText(d.uid, peerId, selfId), d.sig)) return
+    if (this.view.banned.has(d.uid)) return
     const pin = pinResult(this.hooks.pinOf(d.uid), d.pk)
     if (pin === 'conflict') return
     if (pin === 'new') this.hooks.pin(d.uid, d.pk)
@@ -217,6 +265,8 @@ export class Session {
     for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
     this.retryWanted()
     this.hooks.changed()
+    // Hiç yazmamış kişi de üye listesinde dursun: yeni kod ona da gitsin. Önce geçmiş eşitlenir.
+    setTimeout(() => { if (!this.leaving && !this.view.people.has(this.me.uid)) this.emit({t: 'hi'} as never) }, 3000)
   }
 
   private whenAuthed(peerId: string, f: () => void) {
@@ -259,7 +309,7 @@ export class Session {
   // Özel sohbetin dosyasını sadece üyeleri isteyebilir.
   private mayGet(fileId: string, peerId: string) {
     const ch = this.fileCh.get(fileId)
-    if (!isDm(ch)) return true
+    if (!isDm(ch)) return this.authed.has(peerId)
     const uid = this.authed.get(peerId)
     return !!uid && dmMembers(ch!).includes(uid)
   }
@@ -328,6 +378,8 @@ export class Session {
   // İmzası tutmayan ya da kayıtlı anahtarla uyuşmayan olay sessizce düşer.
   private async trusted(e: Ev) {
     if (!canAccept(e)) return false
+    const ban = this.view.banned.get(e.uid)
+    if (ban !== undefined && e.ts > ban) return false
     if (!e.sig) return true
     if (!validPk(e.pk) || !await verifyEvent(e)) return false
     const pin = pinResult(this.hooks.pinOf(e.uid), e.pk)
@@ -335,7 +387,7 @@ export class Session {
     return pin !== 'conflict'
   }
 
-  private async gotEvents(evs: unknown[], from: string) {
+  private async gotEvents(evs: unknown[], from: string, quiet = false) {
     if (!Array.isArray(evs)) return
     const id = await this.identity
     const fresh: Ev[] = []
@@ -352,6 +404,7 @@ export class Session {
     if (!kept.length) return
     void db.saveEvents(this.code, kept)
     this.rebuild()
+    if (quiet) return
     for (const w of kept) {
       const e = this.plain.get(w.id)
       if (e?.t !== 'msg') continue
@@ -362,6 +415,7 @@ export class Session {
     const others = Object.keys(this.room.getPeers()).filter(p => p !== from)
     const open = kept.filter(e => !isDm((e as {ch?: string}).ch))
     if (others.length && open.length) this.a.ev.send(open, {target: others})
+    await this.enforce()
   }
 
   emit(e: Omit<Ev, 'id' | 'ts' | 'uid' | 'name'>) {

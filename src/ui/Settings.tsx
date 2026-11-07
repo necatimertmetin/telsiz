@@ -5,6 +5,7 @@ import type {Session} from '../lib/session'
 import {colorFor} from '../lib/util'
 import {Avatar} from './App'
 import {Modal} from './Modal'
+import {Roster} from './Roster'
 
 async function pickAvatar(f: File) {
   const bmp = await createImageBitmap(f)
@@ -74,6 +75,8 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
       <label className="field">Grup adı
         <input maxLength={40} value={title} onChange={e => setTitle(e.target.value)} onBlur={() => { const t = title.trim(); if (t && t !== s.view.title) s.emit({t: 'group', title: t} as never) }} />
       </label>
+
+      <Roster s={s} onClose={onClose} />
 
       <h4>Maç hatırlatması</h4>
       <div className="days">

@@ -43,6 +43,11 @@ export function validJwk(k: unknown): k is KeysJwk {
   return !!x && one(x.sign) && one(x.dh)
 }
 
+// Eski kodu açık etmeden grubun devamı olduğunu gösterir: kodu bilen eşleştirebilir.
+export async function codeHash(code: string) {
+  return b64(await crypto.subtle.digest('SHA-256', enc.encode('telsiz-prev|' + code))).slice(0, 32)
+}
+
 export const validPk = (pk: unknown): pk is string => typeof pk === 'string' && pk.length < 200 && /^[A-Za-z0-9+/=]+\.[A-Za-z0-9+/=]+$/.test(pk)
 
 // Anahtar sırası sabit: aynı olay her cihazda aynı metne dönüşmeli, yoksa imza tutmaz.
