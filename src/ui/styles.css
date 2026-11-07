@@ -286,3 +286,39 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .modalbody input[type=color]{width:44px;flex:none;padding:2px}
 .modalbody label.btn{display:inline-flex;align-items:center;padding:8px 14px;cursor:pointer}
 .modalbody .days input{width:136px;flex:none}
+/* Ses odaları, yetki tablosu, radyo */
+.kinds{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.kinds button{min-height:64px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1px solid var(--line);border-radius:10px;font-weight:600}
+.kinds button.on{border-color:var(--acc);color:var(--acc);background:var(--bg4)}
+.permrow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;border-bottom:1px solid var(--line)}
+.permrow select{width:auto;min-height:44px;padding:0 10px;flex:none}
+.permrow b{flex:none;font-weight:600;color:var(--dim)}
+.teamsbtn{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.teamsbtn .btn{min-height:44px}
+.radiobar{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:6px 8px 6px 12px;color:var(--acc)}
+.radiobar .livetxt{flex:1;min-width:0;display:flex;flex-direction:column;font-size:13.5px}
+.radiobar .livetxt span{color:var(--dim)}
+.radiobar input[type=range]{width:72px;flex:none;accent-color:var(--acc)}
+.radio{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:20px;width:100%;max-width:980px;margin:0 auto}
+.radionow{display:flex;flex-direction:column;justify-content:center;gap:14px;min-width:0}
+.radionow h2{margin:0;font-size:clamp(28px,5vw,48px);line-height:1.05;overflow-wrap:anywhere}
+.radionow p{margin:0}
+.radionow .live{display:inline-flex;align-self:flex-start;align-items:center;gap:7px;font-size:13.5px;font-weight:700;color:var(--dim)}
+.radionow .live i{width:9px;height:9px;border-radius:50%;background:var(--dim)}
+.radionow .live.on{color:var(--acc)}
+.radionow .live.on i{background:var(--bad)}
+.radionow .warn{color:var(--acc)}
+.radiovol{display:flex;flex-direction:column;gap:6px;max-width:420px}
+.radiovol span{display:flex;justify-content:space-between;font-weight:600}
+.radiovol b{color:var(--acc)}
+.radiovol input{accent-color:var(--acc)}
+.stations{min-width:0;align-self:start;background:var(--bg2);border:1px solid var(--line);border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:4px}
+.strow{display:flex;align-items:center;gap:6px;border-radius:9px}
+.strow.on{background:var(--bg4)}
+.strow.on .stbtn>.ell{color:var(--acc);font-weight:600}
+.stbtn{flex:1;min-width:0;min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 10px;text-align:left}
+.stsearch{display:flex;flex-direction:column;gap:4px;margin-top:6px;max-height:360px;overflow:auto}
+.stsearch .btn{min-height:40px;flex:none}
+.stageradio{flex:none;padding:20px 16px;display:flex;flex-direction:column;gap:10px;align-items:flex-start;max-height:60%;overflow:auto;background:var(--bg3)}
+.stagetools{position:absolute;top:8px;right:8px;z-index:2}
+.prejoin .grow{width:100%;max-width:980px}

@@ -1,5 +1,6 @@
 import {Clipper, type ClipSource} from './clip'
 import type {Session} from './session'
+import type {VoiceState} from './types'
 import {isVirtualMic, worstStat, type ScreenStat} from './util'
 import {callStarted, callStopped, pickScreenCodec, reapplySpeaker} from './native'
 
@@ -23,6 +24,9 @@ const GAME_SCREEN = 1_500_000
 // Herkes herkese doğrudan yollar. 4 kişide kimse için 3 akıştan fazla yükleme yoktur,
 // o yüzden kamera bilerek düşük çözünürlükte: oyun oynarken hattı doldurmasın.
 const RELAY_WAIT = 6000
+
+// İki kişi aynı ses odasında mı. Oda yazmayan eski sürüm ana odada sayılır.
+export const sameRoom = (a: VoiceState, b: VoiceState) => a.in && b.in && (a.room ?? '') === (b.room ?? '')
 
 export class Call {
   remote = new Map<string, Partial<Record<Kind, MediaStream>>>()
@@ -84,7 +88,7 @@ export class Call {
     })
   }
 
-  async join(withCam = false, muted = false) {
+  async join(withCam = false, muted = false, room = '') {
     if (this.s.voice.in) return
     const mic = await this.micStream()
     this.raw = mic.getAudioTracks()[0]
@@ -105,7 +109,7 @@ export class Call {
     // requestAnimationFrame değil: oyun tam ekranken pencere görünmez sayılır ve rAF durur.
     this.timer = setInterval(() => this.tick(), 100)
     this.tuner = setInterval(() => { void this.tune(); void this.sampleScreen(); this.sync() }, 3000)
-    this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false}
+    this.s.voice = {in: true, muted, deaf: false, cam: false, screen: false, sAudio: false, room}
     this.s.announce()
     void callStarted()
     this.wake = await navigator.wakeLock?.request('screen').catch(() => null)
@@ -163,7 +167,14 @@ export class Call {
   }
 
   private voicePeers() {
-    return [...this.s.peers].filter(([, p]) => p.voice.in).map(([id]) => id)
+    return [...this.s.peers].filter(([, p]) => sameRoom(p.voice, this.s.voice)).map(([id]) => id)
+  }
+
+  // Oda değişince sadece varlık duyurulur: akışlar sync içinde yeni odaya göre eklenip kaldırılır.
+  setRoom(room: string) {
+    if (!this.s.voice.in || (this.s.voice.room ?? '') === room) return
+    this.s.voice = {...this.s.voice, room}
+    this.s.announce()
   }
 
   // Tek doğruluk kaynağı: kim seste ise ona akış gider, çıkana gitmez. Her varlık değişiminde çalışır.
@@ -172,6 +183,9 @@ export class Call {
       for (const id of [...this.remote.keys()]) this.dropPeer(id)
       return
     }
+    // Bulunduğum oda silindiyse ana odaya dönülür; duyuru bu fonksiyonu yeniden çalıştırır.
+    const room = this.s.voice.room ?? ''
+    if (room && !this.s.view.rooms.some(r => r.id === room)) return this.setRoom('')
     const inVoice = new Set(this.voicePeers())
     if (this.known) {
       if ([...inVoice].some(id => !this.known!.has(id))) this.roster(true)
@@ -228,7 +242,7 @@ export class Call {
       this.s.room.addStream(w.stream, {target: w.to, metadata: {kind: 'relay', uid: w.uid}})
       this.relaying.set(k, {stream: w.stream, to: w.to})
     }
-    for (const [uid, r] of this.relayed) if (!this.s.indirect().get(uid)?.voice.in) this.dropRelayed(uid, r)
+    for (const [uid, r] of this.relayed) { const v = this.s.indirect().get(uid)?.voice; if (!v || !sameRoom(v, this.s.voice)) this.dropRelayed(uid, r) }
   }
 
   private dropRelayed(uid: string, r: {el: HTMLAudioElement; src?: MediaStreamAudioSourceNode}) {

@@ -9,6 +9,9 @@ import {Avatar, PUBLIC_URL} from './App'
 import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {TvPlayer, TvQueue} from './Watch'
+import {RadioPanel} from './Radio'
+import {can, MAIN_ROOM, roomChat} from '../lib/history'
+import type {VoiceState} from '../lib/types'
 
 function Video({stream, muted, mirror, volume = 1}: {stream: MediaStream; muted: boolean; mirror?: boolean; volume?: number}) {
   const r = useRef<HTMLVideoElement>(null)
@@ -198,29 +201,37 @@ function ScreenMenu({call}: {call: Call}) {
 export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const [focus, setFocus] = useState<string | null>(null)
   const [side, setSide] = useState(() => innerWidth > 1000)
-  const [tab, setTab] = useState<'chat' | 'list'>('chat')
+  const room = app.shownRoom(s)
+  const [tab, setTab] = useState<'chat' | 'list'>(room.kind === 'music' ? 'list' : 'chat')
   const [audioOpen, setAudioOpen] = useState(false)
   const v = s.voice
-  const roomChat = v.in && side && tab === 'chat'
+  const chatOpen = v.in && side && tab === 'chat'
+  useEffect(() => { setTab(room.kind === 'music' ? 'list' : 'chat') }, [room.id, room.kind])
   useEffect(() => {
-    app.roomChatOpen = roomChat
+    app.roomChatOpen = chatOpen
     app.markRead()
     app.bump()
     return () => { app.roomChatOpen = false }
-  }, [roomChat, s])
-  const others = [...s.peers].filter(([, p]) => p.voice.in)
+  }, [chatOpen, s, room.id])
+  const known = new Set(s.view.rooms.map(r => r.id))
+  const roomOf = (x: VoiceState) => known.has(x.room ?? '') ? x.room ?? '' : ''
+  const others = [...s.peers].filter(([, p]) => p.voice.in && roomOf(p.voice) === room.id)
+  const mayDrop = !!room.id && can(s.view, app.me.uid, 'rooms')
+  const dropBtn = mayDrop && <button className="btn ghost danger" onClick={() => { if (confirm(`${room.title} odası silinsin mi? İçindekiler ${MAIN_ROOM}'na geçer.`)) { s.dropRoom(room.id); void app.enterRoom('') } }}><Icon n="trash" s={16} /> Odayı sil</button>
 
   if (!v.in) return (
     <div className="prejoin">
+      {room.kind === 'radio' ? <div className="col grow"><RadioPanel s={s} room={room} />{dropBtn}</div> : (
       <div className="card">
-        <h2>Telsiz odası</h2>
+        <h2>{room.title}</h2>
         <p className="dim">{others.length ? `İçeride: ${others.map(([, p]) => p.name).join(', ')}` : 'Şu an kimse yok.'}</p>
         <div className="col">
-          <button className="btn pri" onClick={() => void app.joinVoice()}><Icon n="mic" s={18} /> Sesli katıl</button>
-          <button className="btn" onClick={() => void app.joinVoice(true)}><Icon n="video" s={18} /> Görüntülü katıl</button>
+          <button className="btn pri" onClick={() => void app.joinVoice(false, false, room.id)}><Icon n="mic" s={18} /> Sesli katıl</button>
+          <button className="btn" onClick={() => void app.joinVoice(true, false, room.id)}><Icon n="video" s={18} /> Görüntülü katıl</button>
           <button className="btn ghost" disabled={!s.peers.size} onClick={() => { s.ring(); app.showToast('Herkese çağrı gitti') }}><Icon n="bell" s={18} /> Herkesi çağır</button>
+          {dropBtn}
         </div>
-      </div>
+      </div>)}
     </div>
   )
 
@@ -235,7 +246,7 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
     const r = call.remote.get(peerId)
     tiles.push({key: peerId, uid: p.uid, name: p.name, peerId, stream: p.voice.cam ? r?.cam : undefined, muted: p.voice.muted, deaf: p.voice.deaf, talk: call.speaking.has(peerId), self: false})
   }
-  for (const u of s.indirect().values()) if (u.voice.in)
+  for (const u of s.indirect().values()) if (u.voice.in && roomOf(u.voice) === room.id)
     tiles.push({key: 'r:' + u.uid, uid: u.uid, name: `${u.name} (${u.via} üzerinden)`, muted: u.voice.muted, deaf: u.voice.deaf, talk: call.speaking.has('r:' + u.uid), self: false})
   const focused = tiles.find(t => t.key === focus)
   const rest = focused ? tiles.filter(t => t !== focused) : tiles
@@ -256,6 +267,8 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   return (
     <div className="room">
     <div className="stage">
+      {room.kind === 'radio' && <div className="stageradio"><RadioPanel s={s} room={room} />{dropBtn}</div>}
+      {room.kind !== 'radio' && dropBtn && <div className="stagetools">{dropBtn}</div>}
       <TvPlayer s={s} />
       {focused && <div className="focus"><TileView t={focused} big onClick={() => setFocus(null)} /></div>}
       <div className={'grid n' + Math.min(rest.length, 6) + (focused ? ' strip' : '')}>
@@ -298,7 +311,7 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
           <button role="tab" aria-selected={tab === 'list'} className={tab === 'list' ? 'on' : ''} onClick={() => setTab('list')}>Liste{s.tv.queue.length ? ` (${s.tv.queue.length})` : ''}</button>
           <button className="ico sm sideclose" aria-label="Paneli kapat" onClick={() => setSide(false)}><Icon n="x" s={16} /></button>
         </div>
-        {tab === 'chat' ? <Chat key={s.code + 'ses'} s={s} ch="ses" /> : <TvQueue s={s} />}
+        {tab === 'chat' ? <Chat key={s.code + roomChat(room.id)} s={s} ch={roomChat(room.id)} /> : <TvQueue s={s} />}
       </aside>
     )}
     </div>

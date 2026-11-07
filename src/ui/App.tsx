@@ -1,7 +1,8 @@
 import {useEffect, useState, type FormEvent} from 'react'
 import {app, useApp} from '../lib/app'
 import type {Session} from '../lib/session'
-import {dmId, dmOthers, isDm, roleName} from '../lib/history'
+import {can, dmId, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
+import type {RoomKind, VoiceState} from '../lib/types'
 import {desktop} from '../lib/native'
 import {colorFor, initials, parseInvite} from '../lib/util'
 import {Chat} from './Chat'
@@ -114,6 +115,78 @@ function Invite({s, onClose}: {s: Session; onClose: () => void}) {
   )
 }
 
+export const KIND_ICON: Record<RoomKind, string> = {voice: 'wave', music: 'sfx', radio: 'radio'}
+const KIND_NAME: [RoomKind, string][] = [['voice', 'Ses'], ['music', 'Müzik'], ['radio', 'Radyo']]
+const KIND_HELP: Record<RoomKind, string> = {
+  voice: 'Konuşma odası. Sadece bu odadakiler birbirini duyar.',
+  music: 'YouTube linkleri sıraya girer, odadakiler aynı anda dinler.',
+  radio: 'Odadakiler grubun radyolarından birini birlikte dinler. Yayın herkesin cihazına doğrudan gelir.',
+}
+
+function NewRoom({s, onClose}: {s: Session; onClose: () => void}) {
+  const [title, setTitle] = useState('')
+  const [kind, setKind] = useState<RoomKind>('voice')
+  return (
+    <Modal title="Oda kur" onClose={onClose}>
+      <form className="col" onSubmit={e => {
+        e.preventDefault()
+        const rid = s.makeRoom(title.trim() || KIND_NAME.find(n => n[0] === kind)![1], kind)
+        onClose()
+        void app.enterRoom(rid)
+      }}>
+        <label className="lbl" htmlFor="roomname">Oda adı</label>
+        <input id="roomname" autoFocus maxLength={40} placeholder="ör. Takım 3" value={title} onChange={e => setTitle(e.target.value)} />
+        <span className="lbl">Oda türü</span>
+        <div className="kinds" role="radiogroup" aria-label="Oda türü">
+          {KIND_NAME.map(([k, n]) => (
+            <button type="button" key={k} role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}><Icon n={KIND_ICON[k]} /> {n}</button>
+          ))}
+        </div>
+        <p className="dim small">{KIND_HELP[kind]}</p>
+        <button className="btn pri">Odayı kur</button>
+      </form>
+    </Modal>
+  )
+}
+
+type VUser = {id: string; uid: string; name: string; v: VoiceState}
+
+function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void; onNew: () => void}) {
+  const call = app.call!
+  const all: VUser[] = [
+    ...(s.voice.in ? [{id: 'me', uid: app.me.uid, name: app.me.name, v: s.voice}] : []),
+    ...[...s.peers].filter(([, p]) => p.voice.in).map(([id, p]) => ({id, uid: p.uid, name: p.name, v: p.voice})),
+    ...[...s.indirect().values()].filter(u => u.voice.in).map(u => ({id: 'r:' + u.uid, uid: u.uid, name: u.name, v: u.voice})),
+  ]
+  const known = new Set(s.view.rooms.map(r => r.id))
+  const rooms = [{id: '', title: MAIN_ROOM, kind: 'voice' as RoomKind}, ...s.view.rooms]
+  const here = app.route.kind === 'voice' ? app.shownRoom(s).id : null
+  return (
+    <>
+      <div className="sect">Ses odaları {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={onNew}><Icon n="plus" s={15} /></button>}</div>
+      {rooms.map(r => {
+        // Henüz bilinmeyen odadaki kişi ana odada gösterilir.
+        const users = all.filter(u => (known.has(u.v.room ?? '') ? u.v.room ?? '' : '') === r.id)
+        const n = app.unread(s, roomChat(r.id))
+        return (
+          <div key={r.id}>
+            <button className={'chan' + (here === r.id ? ' on' : '')} onClick={() => { void app.enterRoom(r.id); onNavigate() }}>
+              <Icon n={KIND_ICON[r.kind]} s={17} /><span className="ell">{r.title}</span>{n > 0 && <span className="badge in">{n}</span>}{users.length > 0 && <span className="count">{users.length}</span>}
+            </button>
+            {users.map(u => (
+              <div key={u.id} className="vuser">
+                <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
+                <span className="ell">{u.name}</span>
+                {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}{u.v.sAudio && <span title="Ekran sesi yayında" className="saudio"><Icon n="speaker" s={14} /></span>}
+              </div>
+            ))}
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
 function Rail({onAdd}: {onAdd: () => void}) {
   return (
     <nav className="rail" aria-label="Gruplar">
@@ -142,12 +215,10 @@ function people(s: Session) {
   return {online, offline}
 }
 
-function Side({s, onInvite, onSettings, onNavigate, onPrivate}: {s: Session; onInvite: () => void; onSettings: () => void; onNavigate: () => void; onPrivate: () => void}) {
+function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: Session; onInvite: () => void; onSettings: () => void; onNavigate: () => void; onPrivate: () => void; onNewRoom: () => void}) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
-  const call = app.call!
   const dms = [...s.view.msgs.keys()].filter(isDm)
-  const inVoice = [{id: 'me', uid: app.me.uid, name: app.me.name, on: s.voice.in, v: s.voice}, ...[...s.peers].map(([id, p]) => ({id, uid: p.uid, name: p.name, on: p.voice.in, v: p.voice}))].filter(x => x.on)
   const live = app.liveSession()
   const liveCall = app.liveCall()
   return (
@@ -187,22 +258,20 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate}: {s: Session; onI
             </button>
           )
         })}
-        <div className="sect">Ses</div>
-        <button className={'chan' + (app.route.kind === 'voice' ? ' on' : '')} onClick={() => { app.go({kind: 'voice'}); onNavigate() }}>
-          <Icon n="wave" s={17} /><span className="ell">Telsiz odası</span>{app.unread(s, 'ses') > 0 && <span className="badge in">{app.unread(s, 'ses')}</span>}{inVoice.length > 0 && <span className="count">{inVoice.length}</span>}
-        </button>
-        {inVoice.map(u => (
-          <div key={u.id} className="vuser">
-            <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
-            <span className="ell">{u.name}</span>
-            {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}{u.v.sAudio && <span title="Ekran sesi yayında" className="saudio"><Icon n="speaker" s={14} /></span>}
-          </div>
-        ))}
+        <VoiceRooms s={s} onNavigate={onNavigate} onNew={onNewRoom} />
         <div className="onlymobile"><Members s={s} onOpen={onNavigate} /></div>
       </div>
+      {live && app.radioBg && app.roomOf(live, live.voice.room ?? '').kind !== 'radio' && (
+        <div className="radiobar">
+          <Icon n="radio" s={16} />
+          <span className="livetxt"><b>Radyo arkada</b><span className="ell">{live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
+          <input type="range" min={0} max={1} step={.05} value={app.prefs.radioVol} aria-label="Radyo sesi" onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
+          <button className="ico sm" aria-label="Radyoyu kapat" title="Radyoyu kapat" onClick={() => app.stopRadioBg()}><Icon n="x" s={15} /></button>
+        </div>
+      )}
       {live && liveCall && (
         <div className="livebar">
-          <button className="livetxt" onClick={() => { app.select(live.code); app.go({kind: 'voice'}); onNavigate() }}><b>Seste</b><span className="ell">{live.view.title}</span></button>
+          <button className="livetxt" onClick={() => { app.select(live.code); app.go({kind: 'voice'}); onNavigate() }}><b>Seste</b><span className="ell">{live.view.title} · {app.roomOf(live, live.voice.room ?? '').title}</span></button>
           <button className="ico danger" title="Sesten çık" aria-label="Sesten çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
         </div>
       )}
@@ -280,7 +349,7 @@ function SourcePicker() {
 
 export function App() {
   useApp()
-  const [modal, setModal] = useState<'add' | 'invite' | 'settings' | 'private' | null>(null)
+  const [modal, setModal] = useState<'add' | 'invite' | 'settings' | 'private' | 'room' | null>(null)
   const [drawer, setDrawer] = useState(false)
   const [searching, setSearching] = useState(false)
   const unread = [...app.sessions.values()].reduce((n, x) => n + app.unreadGroup(x), 0)
@@ -304,7 +373,7 @@ export function App() {
   const live = app.liveSession()
   const ring = app.ring
   const route = app.route
-  const title = route.kind === 'voice' ? 'Telsiz odası'
+  const title = route.kind === 'voice' ? app.shownRoom(s).title
     : isDm(route.ch) ? '@ ' + chatName(s, route.ch)
     : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
   const alone = s.peers.size === 0
@@ -314,7 +383,7 @@ export function App() {
       <div className="scrim" onClick={() => setDrawer(false)} />
       <div className="left">
         <Rail onAdd={() => setModal('add')} />
-        <Side s={s} onInvite={() => setModal('invite')} onSettings={() => setModal('settings')} onNavigate={() => setDrawer(false)} onPrivate={() => setModal('private')} />
+        <Side s={s} onInvite={() => setModal('invite')} onSettings={() => setModal('settings')} onNavigate={() => setDrawer(false)} onPrivate={() => setModal('private')} onNewRoom={() => setModal('room')} />
       </div>
       <main className="main">
         <header className="topbar">
@@ -345,11 +414,12 @@ export function App() {
       {modal === 'invite' && <Invite s={s} onClose={() => setModal(null)} />}
       {modal === 'settings' && <Settings s={s} onClose={() => setModal(null)} />}
       {modal === 'private' && <NewPrivate s={s} onClose={() => setModal(null)} />}
+      {modal === 'room' && <NewRoom s={s} onClose={() => setModal(null)} />}
       <SourcePicker />
       {ring && (
         <div className="ring" role="alert">
           <Icon n="bell" /><span className="grow"><b>{ring.name}</b> {ring.text ?? 'seni sese çağırıyor'} · {ring.title}</span>
-          <button className="btn pri" onClick={() => { app.select(ring.code); app.ring = null; void app.joinVoice() }}>Katıl</button>
+          <button className="btn pri" onClick={() => { app.select(ring.code); const room = ring.room ?? ''; app.ring = null; app.voiceRoom = room; void app.joinVoice(false, false, room) }}>Katıl</button>
           <button className="ico" aria-label="Kapat" onClick={() => { app.ring = null; app.bump() }}><Icon n="x" /></button>
         </div>
       )}

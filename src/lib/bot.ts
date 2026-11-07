@@ -12,6 +12,15 @@ function shuffle<T>(list: T[], r: () => number) {
   return a
 }
 
+// Takımlar kimlikle tutulur: 'Odalara dağıt' doğru kişiyi taşır, aynı isimli iki kişi karışmaz.
+export const isTeamCommand = (text: string) => /^\/tak[iı]m(\s|$)/i.test(text.trim())
+export function makeTeams(people: {uid: string; name: string}[], r: () => number = Math.random) {
+  if (people.length < 2) return null
+  const a = shuffle(people, r), half = Math.ceil(a.length / 2)
+  const teams = [a.slice(0, half), a.slice(half)]
+  return {text: teams.map((t, i) => `Takım ${i + 1}: ${t.map(x => x.name).join(', ')}`).join('\n'), teams: teams.map(t => t.map(x => x.uid))}
+}
+
 export const HELP = 'Komutlar: /zar, /zar 20, /yazitura, /harita, /takim, /sec Ali Veli'
 
 // Komut değilse null döner, metin olduğu gibi gönderilir.

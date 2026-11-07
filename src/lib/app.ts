@@ -9,11 +9,13 @@ const latestTag = async (): Promise<string | undefined> =>
   (await fetch('https://api.github.com/repos/necatimertmetin/telsiz/releases/latest').then(r => r.json()))?.tag_name
 import {codeHash, loadIdentity, newIdentity, validJwk, type Identity, type KeysJwk} from './identity'
 import {playSfx} from './sfx'
-import type {Ev, Profile} from './types'
+import {radio} from './radio'
+import {MAIN_ROOM, roomChat} from './history'
+import type {Ev, Profile, VRoom} from './types'
 
 type GroupRef = {code: string; title: string}
 export type Route = {kind: 'text'; ch: string} | {kind: 'voice'}
-type Ring = {code: string; name: string; title: string; text?: string}
+type Ring = {code: string; name: string; title: string; text?: string; room?: string}
 
 function load<T>(k: string, d: T): T {
   try { const v = localStorage.getItem('telsiz.' + k); return v ? {...(d as object), ...JSON.parse(v)} as T : d } catch { return d }
@@ -52,7 +54,7 @@ class App {
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
   roomChatOpen = false
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean}>('prefs', {micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean}>('prefs', {radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
@@ -203,7 +205,46 @@ class App {
 
   subscribe = (f: () => void) => { this.subs.add(f); return () => { this.subs.delete(f) } }
   getVersion = () => this.version
-  bump = () => { this.version++; this.subs.forEach(f => f()) }
+  bump = () => { this.version++; this.syncRadio(); this.subs.forEach(f => f()) }
+
+  // Ses dışındayken bakılan oda. Seste iken her zaman bulunulan oda gösterilir.
+  voiceRoom = ''
+  // Radyo odasından başka odaya geçince istasyon arkada kısık sürebilir.
+  radioBg: {code: string; sid: string} | null = null
+
+  roomOf(s: Session, rid: string): VRoom {
+    return s.view.rooms.find(r => r.id === rid) ?? {id: '', title: MAIN_ROOM, kind: 'voice'}
+  }
+  shownRoom(s: Session) { return this.roomOf(s, s.voice.in ? s.voice.room ?? '' : this.voiceRoom) }
+
+  private syncRadio() {
+    const s = this.liveSession()
+    let want: {url: string; vol: number} | null = null
+    if (s && !s.voice.deaf) {
+      const r = this.roomOf(s, s.voice.room ?? '')
+      const st = (sid?: string) => s.view.stations.find(x => x.id === sid)
+      if (r.kind === 'radio') {
+        const x = st(r.sid)
+        if (x) { want = {url: x.url, vol: this.prefs.radioVol}; this.radioBg = {code: s.code, sid: x.id} }
+      } else if (this.prefs.radioBg && this.radioBg?.code === s.code) {
+        const x = st(this.radioBg.sid)
+        if (x) want = {url: x.url, vol: this.prefs.radioVol * .3}
+      }
+    }
+    if (!s) this.radioBg = null
+    radio.set(want && {...want, sink: this.prefs.speakerId})
+  }
+  stopRadioBg() { this.radioBg = null; this.bump() }
+
+  // Ses odasına geç: seste değilsen katılır, aynı gruptaysan bağlantı kopmadan oda değişir.
+  async enterRoom(rid: string) {
+    const s = this.session
+    if (!s) return
+    this.voiceRoom = rid
+    this.route = {kind: 'voice'}
+    if (s.voice.in) { this.calls.get(s.code)?.setRoom(rid); this.markRead() }
+    this.bump()
+  }
 
   private start() {
     for (const g of this.groups) this.open(g)
@@ -223,6 +264,21 @@ class App {
       if (m[2]) void this.joinFromLink(!known && !this.namedNow)
       this.namedNow = false
     }
+  }
+
+  private onMove(s: Session, room: string, by: string) {
+    const title = this.roomOf(s, room).title
+    if (s.voice.in) {
+      this.calls.get(s.code)?.setRoom(room)
+      if (this.active === s.code && this.route.kind === 'voice') this.voiceRoom = room
+      this.showToast(`${by} seni ${title} odasına aldı`)
+      return
+    }
+    this.ring = {code: s.code, name: by, title: s.view.title, text: `seni ${title} odasına çağırıyor`, room}
+    if (this.prefs.sounds) beep([[660, .12], [880, .16]], .06)
+    clearTimeout(this.ringTimer)
+    this.ringTimer = setTimeout(() => { this.ring = null; this.bump() }, 30_000)
+    this.bump()
   }
 
   private namedNow = false
@@ -254,6 +310,7 @@ class App {
       rekey: (se, code) => void this.moveGroup(se.code, code),
       removed: (se, text) => void this.leaveGroup(se.code).then(() => this.showToast(text)),
       absorb: se => this.absorb(se),
+      move: (se, room, by) => this.onMove(se, room, by),
     }, this.turnServers(), this.identity)
     this.sessions.set(g.code, s)
     this.calls.set(g.code, new Call(s, () => this.prefs, uid => (this.volumes[uid] ?? 1) * this.prefs.outVol, this.bump, () => this.prefs.gameMode, j => {
@@ -297,6 +354,7 @@ class App {
   select(code: string) {
     this.active = code
     this.route = {kind: 'text', ch: 'genel'}
+    this.voiceRoom = ''
     try { localStorage.setItem('telsiz.active', code) } catch { /* yok */ }
     this.markRead()
     this.bump()
@@ -305,7 +363,8 @@ class App {
   go(r: Route) { this.route = r; this.search = ''; this.markRead(); this.bump() }
 
   markRead() {
-    const ch = this.route.kind === 'text' ? this.route.ch : this.roomChatOpen ? 'ses' : ''
+    const s = this.session
+    const ch = this.route.kind === 'text' ? this.route.ch : this.roomChatOpen && s ? roomChat(s.voice.room) : ''
     if (!ch || !this.active || away()) return
     const last = this.session?.view.msgs.get(ch)?.at(-1)
     // Karşının saati ileri olsa da açılan mesaj okunmuş sayılır.
@@ -328,7 +387,7 @@ class App {
       await this.sessions.get(code)!.absorbEvents(await db.loadEvents(old))
       return this.leaveGroup(old, true)
     }
-    const wasIn = s.voice.in, muted = s.voice.muted, title = s.view.title, active = this.active === old
+    const wasIn = s.voice.in, muted = s.voice.muted, vroom = s.voice.room ?? '', title = s.view.title, active = this.active === old
     this.calls.get(old)?.leave()
     await s.leave()
     this.sessions.delete(old); this.calls.delete(old)
@@ -347,7 +406,7 @@ class App {
     if (wasIn) {
       const keep = this.active, route = this.route
       this.active = code
-      await this.joinVoice(false, muted)
+      await this.joinVoice(false, muted, vroom)
       this.active = keep; this.route = route
     }
     this.bump()
@@ -415,8 +474,8 @@ class App {
     let people: {name: string; talk: boolean; muted: boolean}[] | null = null
     if (s && c && this.prefs.overlay) {
       people = [{name: this.me.name, talk: c.speaking.has('me'), muted: s.voice.muted}]
-      for (const [id, p] of s.peers) if (p.voice.in) people.push({name: p.name, talk: c.speaking.has(id), muted: p.voice.muted})
-      for (const u of s.indirect().values()) if (u.voice.in) people.push({name: u.name, talk: c.speaking.has('r:' + u.uid), muted: u.voice.muted})
+      for (const [id, p] of s.peers) if (p.voice.in && (p.voice.room ?? '') === (s.voice.room ?? '')) people.push({name: p.name, talk: c.speaking.has(id), muted: p.voice.muted})
+      for (const u of s.indirect().values()) if (u.voice.in && (u.voice.room ?? '') === (s.voice.room ?? '')) people.push({name: u.name, talk: c.speaking.has('r:' + u.uid), muted: u.voice.muted})
     }
     const key = JSON.stringify(people)
     if (key === this.lastOverlay) return
@@ -467,7 +526,7 @@ class App {
 
   private onMessage(s: Session, e: Ev & {t: 'msg'}) {
     const fresh = Date.now() - e.ts < 30_000
-    const viewing = s.code === this.active && !away() && (this.route.kind === 'text' ? this.route.ch === e.ch : this.roomChatOpen && e.ch === 'ses')
+    const viewing = s.code === this.active && !away() && (this.route.kind === 'text' ? this.route.ch === e.ch : this.roomChatOpen && e.ch === roomChat(s.voice.room))
     if (viewing) { this.markRead(); return }
     if (!fresh) return
     if (this.prefs.sounds) beep([[880, .08], [1175, .1]], .03)
@@ -489,13 +548,15 @@ class App {
     try { new Notification(title, {body, icon: 'icon-192.png'}) } catch { /* mobil kısıtı */ }
   }
 
-  async joinVoice(cam = false, muted = false) {
+  async joinVoice(cam = false, muted = false, room = this.voiceRoom) {
     const c = this.call
     if (!c) return
     if (typeof Notification !== 'undefined' && Notification.permission === 'default') void Notification.requestPermission().catch(() => {})
     this.liveCall()?.leave()
     try {
-      await c.join(cam, muted)
+      // Silinmiş odaya girilmez, ana odaya düşülür.
+      const s = this.session
+      await c.join(cam, muted, s && s.view.rooms.some(r => r.id === room) ? room : '')
       if (this.prefs.sounds) beep([[523, .08], [784, .12]])
       this.route = {kind: 'voice'}
     } catch (e) {

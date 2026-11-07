@@ -1,11 +1,11 @@
 import {getRelaySockets, joinRoom, selfId} from 'trystero'
-import {canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
+import {can, canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
 import {codeHash, openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
 import {lowLatencySdp, newRoomCode, orderCodecs, parseInvite, randomId} from './util'
 import {screenCodec} from './native'
-import type {Ev, FileMeta, Other, Presence, Profile, View, VoiceState} from './types'
+import type {Ev, FileMeta, Other, Presence, Profile, RoomKind, Station, View, VoiceState} from './types'
 
 export const CHUNK = 128 * 1024
 export const AUTO_FETCH = 25 * 1024 * 1024 // küçük dosyalar herkese kendiliğinden iner
@@ -49,6 +49,7 @@ export type Hooks = {
   rekey(s: Session, code: string): void
   removed(s: Session, text: string): void
   absorb(s: Session): Promise<void>
+  move(s: Session, room: string, by: string): void
 }
 type Incoming = {meta: FileMeta; parts: Blob[]; got: number; source: string}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -84,7 +85,7 @@ export class Session {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   room: any
-  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth' | 'tv', Act>
+  private a!: Record<'hello' | 'ids' | 'ev' | 'typing' | 'ring' | 'have' | 'req' | 'chunk' | 'seen' | 'prof' | 'sfx' | 'auth' | 'tv' | 'move', Act>
   private blobs = new Map<string, Blob>()
   private urls = new Map<string, string>()
   private incoming = new Map<string, Incoming>()
@@ -98,7 +99,10 @@ export class Session {
   private outbox: Promise<unknown> = Promise.resolve()
   private fileCh = new Map<string, string>()
   private leaving = false
-  tv: TvState = TV_EMPTY
+  // Her ses odasının kendi izleme listesi var. Ekran seste olduğun odanınkini gösterir.
+  readonly tvs = new Map<string, TvState>()
+  get tvRoom() { return this.voice.in ? this.voice.room ?? '' : '' }
+  get tv(): TvState { return this.tvs.get(this.tvRoom) ?? TV_EMPTY }
   private tvSubs = new Set<() => void>()
 
   constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[], private identity: Promise<Identity>) {
@@ -114,15 +118,26 @@ export class Session {
     const r = this.room
     this.a = {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
-      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'),
+      ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'), move: r.makeAction('move'),
+    }
+    // Takım dağıtma: gönderenin kimliği bağlantıdan bilinir, yetkisi yoksa yok sayılır.
+    this.a.move.onMessage = (d: {to?: Record<string, string>}, {peerId}: {peerId: string}) => {
+      const by = this.authed.get(peerId)
+      const room = d?.to && typeof d.to === 'object' ? d.to[this.me.uid] : undefined
+      if (!by || typeof room !== 'string' || !can(this.view, by, 'teams')) return
+      if (room && !this.view.rooms.some(x => x.id === room)) return
+      this.hooks.move(this, room, this.view.people.get(by) ?? this.peers.get(peerId)?.name ?? 'Biri')
     }
     this.a.hello.onMessage = (p: Presence, {peerId}: {peerId: string}) => this.whenAuthed(peerId, () => this.gotHello(p, peerId))
     this.a.auth.onMessage = (d: {uid: string; pk: string; sig: string}, {peerId}: {peerId: string}) => void this.gotAuth(d, peerId)
     this.a.tv.onMessage = (d: unknown, {peerId}: {peerId: string}) => {
-      if (!this.authed.has(peerId) || !validTv(d) || !tvNewer(d.rev, this.tv.rev)) return
+      const room = typeof (d as {room?: unknown})?.room === 'string' ? (d as {room: string}).room.slice(0, 32) : ''
+      const cur = this.tvs.get(room) ?? TV_EMPTY
+      if (!this.authed.has(peerId) || !validTv(d) || !tvNewer(d.rev, cur.rev)) return
       // Konum gönderim anına ait: yolda geçen süre eklenir, saat farkı işe karışmaz.
       const late = d.playing ? (this.stats.get(peerId)?.rtt ?? 0) / 2000 : 0
-      this.tv = {...d, pos: d.pos + late, at: performance.now()}
+      const {room: _r, ...state} = d as typeof d & {room?: string}
+      this.tvs.set(room, {...state, pos: state.pos + late, at: performance.now()})
       this.tvChanged()
     }
     this.a.prof.onMessage = (d: {uid: string} & Profile, {peerId}: {peerId: string}) => {
@@ -203,6 +218,23 @@ export class Session {
     if (view.prevs.size) await this.hooks.absorb(this)
   }
 
+  // Ses odası: kurulur ya da silinir. Kimlik kısa ve rastgele, başlık değişse de oda aynı kalır.
+  makeRoom(title: string, kind: RoomKind = 'voice') {
+    const rid = randomId().slice(0, 12)
+    this.emit({t: 'vroom', rid, title: title.trim().slice(0, 40), on: true, kind} as never)
+    return rid
+  }
+  dropRoom(rid: string) {
+    const r = this.view.rooms.find(x => x.id === rid)
+    if (r) this.emit({t: 'vroom', rid, title: r.title, on: false} as never)
+  }
+  addStation(st: Omit<Station, 'id'>) { this.emit({t: 'station', sid: randomId().slice(0, 12), ...st, on: true} as never) }
+  dropStation(st: Station) { this.emit({t: 'station', sid: st.id, title: st.title, url: st.url, tag: st.tag, on: false} as never) }
+  tune(rid: string, sid: string) { this.emit({t: 'tune', rid, sid} as never) }
+  // Yeni kurulan oda olayı önce gitsin: karşı taraf bilmediği odaya taşınmayı reddeder.
+  async flush() { await this.outbox }
+  sendMove(to: Record<string, string>) { this.a.move.send({to}) }
+
   setRole(uid: string, role: 'admin' | 'member') { this.emit({t: 'role', target: uid, role} as never) }
 
   // Yeni kod kalan üyelere şifreli gider. Atılan kişi kutuyu açamaz, eski kod da boş kalır.
@@ -261,7 +293,7 @@ export class Session {
     this.a.prof.send({uid: this.me.uid, ...this.hooks.myProfile()}, {target: peerId})
     this.announce()
     this.a.ids.send({uid: this.me.uid, ids: [...this.events.keys()]}, {target: peerId})
-    if (this.tv.rev[0]) this.a.tv.send(this.tvWire(), {target: peerId})
+    for (const room of this.tvs.keys()) this.a.tv.send(this.tvWire(room), {target: peerId})
     for (const [ch, ts] of this.mySeen) if (!isDm(ch)) this.a.seen.send({uid: this.me.uid, ch, ts}, {target: peerId})
     this.retryWanted()
     this.hooks.changed()
@@ -327,15 +359,21 @@ export class Session {
     return out
   }
 
-  private tvWire() { const {at: _, ...w} = this.tv; return {...w, pos: tvPos(this.tv, performance.now())} }
+  // Eski sürüm 'room' alanını bilmez, ana odanın listesi onlarla da eşleşir.
+  private tvWire(room: string) {
+    const t = this.tvs.get(room) ?? TV_EMPTY
+    const {at: _, ...w} = t
+    return {...w, pos: tvPos(t, performance.now()), ...(room ? {room} : {})}
+  }
   private tvChanged() { for (const f of this.tvSubs) f(); this.hooks.changed() }
   onTv(f: () => void) { this.tvSubs.add(f); return () => { this.tvSubs.delete(f) } }
 
   tvDo(act: TvAction) {
+    const room = this.tvRoom
     const next = tvApply(this.tv, act, this.me.uid, performance.now())
     if (!next) return
-    this.tv = next
-    this.a.tv.send(this.tvWire())
+    this.tvs.set(room, next)
+    this.a.tv.send(this.tvWire(room))
     this.tvChanged()
   }
 
@@ -360,7 +398,8 @@ export class Session {
     if (p.uid === this.me.uid) return // aynı hesabın diğer cihazı: eşitlenir, üye olarak görünmez
     const others = Array.isArray(p.others) ? p.others.filter(o => o && typeof o.uid === 'string' && typeof o.name === 'string' && o.voice).slice(0, 20) : []
     const old = this.peers.get(peerId)
-    const next = {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice}, others}
+    const room = typeof p.voice.room === 'string' && p.voice.room.length <= 32 ? p.voice.room : ''
+    const next = {uid: p.uid, name: p.name.slice(0, 40), voice: {...p.voice, room}, others}
     this.peers.set(peerId, next)
     // Komşunun kendi durumu değişince diğerlerine de duyurulur; sadece 'others' değişince
     // duyurulmaz, yoksa iki kişi birbirine sonsuza dek haber verir.

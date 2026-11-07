@@ -1,16 +1,40 @@
 import {Fragment, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent} from 'react'
 import {app} from '../lib/app'
-import {isDm, MAX_TEXT} from '../lib/history'
+import {can, isDm, isRoomChat, MAX_TEXT, TEAM_ROOM} from '../lib/history'
 import {saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
 import type {FileMeta, Msg} from '../lib/types'
 import {colorFor, fmtDay, fmtSize, fmtTime, isImageUrl, linkify, mentions, previewKind} from '../lib/util'
 import {Avatar, chatName} from './App'
-import {runCommand} from '../lib/bot'
+import {isTeamCommand, makeTeams, runCommand} from '../lib/bot'
 import {Modal} from './Modal'
 import {Icon} from './Icon'
 
 const EMOJI = ['👍', '😂', '🔥', '❤️', '💀', '😮', '🎯', '🇹🇷']
+
+// Takımları odalara dağıtır: 'Takım N' odası yoksa kurulur, seste olan herkes kendi odasına geçer,
+// seste olmayana çağrı gider.
+function TeamsCard({s, m}: {s: Session; m: Msg}) {
+  if (!can(s.view, app.me.uid, 'teams')) return null
+  const deal = async () => {
+    const to: Record<string, string> = {}
+    m.teams!.forEach((uids, i) => {
+      const title = `Takım ${i + 1}`
+      if (!TEAM_ROOM.test(title)) return
+      const rid = s.view.rooms.find(r => r.title === title && r.kind === 'voice')?.id ?? s.makeRoom(title)
+      for (const u of uids) to[u] = rid
+    })
+    await s.flush()
+    s.sendMove(to)
+    const mine = to[app.me.uid]
+    if (mine !== undefined) {
+      if (s.voice.in) void app.enterRoom(mine)
+      else { app.voiceRoom = mine; app.route = {kind: 'voice'}; app.bump() }
+    }
+    app.showToast('Takımlar odalara dağıtıldı')
+  }
+  return <div className="teamsbtn"><button className="btn pri" onClick={() => void deal()}>Odalara dağıt</button><span className="dim small">Seste olan kendi takım odasına geçer, olmayana çağrı gider.</span></div>
+}
 
 function FileCard({s, f, own}: {s: Session; f: FileMeta; own: boolean}) {
   const [url, setUrl] = useState<string | null>(null)
@@ -179,6 +203,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
         ) : m.text && <div className="txt"><Text text={m.text} />{m.edited && <span className="dim small"> (düzenlendi)</span>}</div>}
         {m.text && <LinkedImages text={m.text} />}
         {m.poll && <PollCard s={s} m={m} />}
+        {m.teams && <TeamsCard s={s} m={m} />}
         {m.file && <FileCard s={s} f={m.file} own={own} />}
         {Object.keys(m.reacts).length > 0 && (
           <div className="reacts">
@@ -215,7 +240,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
   const area = useRef<HTMLTextAreaElement>(null)
   const lastTyping = useRef(0)
   const dm = isDm(ch)
-  const chTitle = dm ? chatName(s, ch) : ch === 'ses' ? 'oda sohbeti' : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
+  const chTitle = dm ? chatName(s, ch) : isRoomChat(ch) ? 'oda sohbeti' : s.view.channels.find(c => c.id === ch)?.title ?? 'genel'
   const lastOwn = msgs.findLastIndex(m => m.uid === app.me.uid)
   const seenBy = lastOwn < 0 ? [] : [...(s.seen.get(ch) ?? [])]
     .filter(([u, ts]) => u !== app.me.uid && ts >= msgs[lastOwn].ts)
@@ -228,10 +253,12 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
     const t = text.trim()
     if (!t) return
     // Takım için seste kim varsa onlar, ses boşsa çevrimiçi herkes sayılır.
-    const live = [...s.peers.values()]
-    const names = (s.voice.in ? [app.me.name, ...live.filter(p => p.voice.in).map(p => p.name)] : [app.me.name, ...live.map(p => p.name)])
-    s.sendText(ch, runCommand(t, names) ?? t, reply?.id)
-    if (ch === 'ses') s.tvAddLink(t, app.me.name)
+    const live = [...s.peers.values()].filter((p, i, a) => a.findIndex(q => q.uid === p.uid) === i)
+    const pool = [{uid: app.me.uid, name: app.me.name}, ...(s.voice.in ? live.filter(p => p.voice.in) : live)]
+    const teams = !dm && isTeamCommand(t) ? makeTeams(pool) : null
+    if (teams) s.emit({t: 'msg', ch, text: teams.text, teams: teams.teams} as never)
+    else s.sendText(ch, runCommand(t, pool.map(p => p.name)) ?? t, reply?.id)
+    if (isRoomChat(ch)) s.tvAddLink(t, app.me.name)
     setText(''); setReply(null)
     stick.current = true
     area.current?.focus()
@@ -283,7 +310,7 @@ export function Chat({s, ch}: {s: Session; ch: string}) {
         <input ref={fileInput} type="file" multiple hidden onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }} />
         <button className="ico" aria-label="Dosya ekle" title="Dosya ekle" onClick={() => fileInput.current?.click()}><Icon n="clip" /></button>
         <button className="ico" aria-label="Anket kur" title="Anket kur" onClick={() => setPolling(true)}><Icon n="poll" /></button>
-        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} için yaz` : ch === 'ses' ? 'Odaya yaz ya da YouTube linki yapıştır' : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
+        <textarea ref={area} rows={1} value={text} maxLength={MAX_TEXT} placeholder={dm ? `${chTitle} için yaz` : isRoomChat(ch) ? 'Odaya yaz ya da YouTube linki yapıştır' : `#${chTitle} kanalına yaz`} aria-label="Mesaj"
           onChange={e => {
             setText(e.target.value)
             if (Date.now() - lastTyping.current > 2500) { lastTyping.current = Date.now(); s.sendTyping(ch) }

@@ -40,6 +40,7 @@ const P: Record<string, string> = {
   pin: 'M9 3h6l-1 6 4 4H6l4-4zM12 13v8',
   pip: 'M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM12 12h7v6h-7z',
   check: 'M5 13l4 4L19 7',
+  radio: 'M4 9h16v11H4zM7 9l10-5M15 13h2M15 16h2M11 14.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
 }
 
 export function Icon({n, s = 20}: {n: string; s?: number}) {

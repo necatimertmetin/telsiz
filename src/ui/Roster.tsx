@@ -1,6 +1,7 @@
 import {useState} from 'react'
 import {app} from '../lib/app'
-import {canKick, isManager} from '../lib/history'
+import {canKick, isManager, PERMS, WHO_NAME} from '../lib/history'
+import type {Who as Level} from '../lib/types'
 import type {Session} from '../lib/session'
 import {Avatar} from './App'
 
@@ -59,6 +60,18 @@ export function Roster({s, onClose}: {s: Session; onClose: () => void}) {
         ))}
         <p className="dim small">Geri alınan kişiye yeni davet linkini göndermen gerekir.</p>
       </>}
+
+      <h4>Kim ne yapabilir</h4>
+      {PERMS.map(p => (
+        <label className="permrow" key={p.key}>
+          <span>{p.name}</span>
+          {me === v.owner
+            ? <select value={v.perms[p.key]} onChange={e => s.emit({t: 'perm', key: p.key, who: e.target.value as Level} as never)}>{p.who.map(w => <option key={w} value={w}>{WHO_NAME[w]}</option>)}</select>
+            : <b>{WHO_NAME[v.perms[p.key]]}</b>}
+        </label>
+      ))}
+      <div className="permrow"><span>Yönetici atama</span><b>{WHO_NAME.owner}</b></div>
+      {me !== v.owner && <p className="dim small">Bu tabloyu sadece kurucu değiştirir.</p>}
 
       {me === v.owner && <button className="btn danger" onClick={() => { setKick(null); setWipe(true) }}>Grubu sil</button>}
       {wipe && (
