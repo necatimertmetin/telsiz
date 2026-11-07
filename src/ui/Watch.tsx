@@ -30,13 +30,20 @@ const fmt = (t: number) => {
 }
 
 const readVol = () => { try { return Number(localStorage.getItem('telsiz.tvvol') ?? 60) } catch { return 60 } }
-const PLAYING = 1, PAUSED = 2, BUFFERING = 3, ENDED = 0
+const PLAYING = 1, PAUSED = 2, BUFFERING = 3, ENDED = 0, ANY = -9
 
-// Oynatıcının kendi kontrolleri kapalı: herkesin komutu ortak durumdan geçsin, kimse kendi başına kaymasın.
+// YouTube'un kendi kontrolleri açık (çözünürlük, altyazı). Oradan durdurma ve sarma herkese gider,
+// hız ise 1'e sabit: yoksa kişi ortak akıştan kayar.
 export function TvPlayer({s}: {s: Session}) {
   const host = useRef<HTMLDivElement>(null)
   const player = useRef<YtPlayer>(null)
   const loaded = useRef('')
+  const ours = useRef({st: ANY, at: 0})
+  const played = useRef(false)
+  const last = useRef({t: 0, at: 0, st: ANY})
+  const retry = useRef({k: '', n: 0})
+  const prev = useRef(ANY)
+  const userPlay = useRef(false)
   const [time, setTime] = useState({cur: 0, dur: 0})
   const [mini, setMini] = useState(false)
   const [vol, setVol] = useState(readVol)
@@ -49,39 +56,71 @@ export function TvPlayer({s}: {s: Session}) {
       if (dead || !host.current) return
       player.current = new window.YT.Player(host.current, {
         width: '100%', height: '100%',
-        playerVars: {controls: 0, disablekb: 1, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, origin: location.origin},
+        playerVars: {controls: 1, disablekb: 1, rel: 0, playsinline: 1, modestbranding: 1, fs: 0, origin: location.origin},
         events: {
           onReady: () => { window.__tv = player.current; player.current.setVolume(readVol()); sync() },
           onStateChange: (e: {data: number}) => {
-            if (e.data === ENDED && loaded.current) s.tvDo({a: 'ended', k: loaded.current})
-            else sync()
+            if (e.data === ENDED && loaded.current) return s.tvDo({a: 'ended', k: loaded.current})
+            // Bizim verdiğimiz komutun sonucu değilse kişi YouTube çubuğuna basmıştır, herkese yay.
+            // Sadece oynarken durma ve dururken oynama sayılır: yükleme bitip oynamaya geçmek kişinin işi değildir.
+            // Hiç oynamamış oynatıcının durması (tarayıcı otomatik oynatmayı engelledi) da sayılmaz.
+            const o = ours.current, own = performance.now() - o.at < 1500 && (o.st === ANY || o.st === e.data)
+            const was = prev.current, wanted = userPlay.current
+            prev.current = e.data
+            if (e.data !== BUFFERING) userPlay.current = false
+            if (e.data === PLAYING) played.current = true
+            if (loaded.current && !own) {
+              if (e.data === PAUSED && was === PLAYING && s.tv.playing && played.current) { mine(PAUSED); return s.tvDo({a: 'pause'}) }
+              if (!s.tv.playing && was === PAUSED && e.data === BUFFERING) userPlay.current = true
+              if (!s.tv.playing && e.data === PLAYING && (was === PAUSED || wanted)) { mine(PLAYING); return s.tvDo({a: 'play'}) }
+            }
+            sync()
           },
-          onError: () => {
+          onError: (e: {data: number}) => {
             const k = tvCurrent(s.tv)?.k
+            // 5 = oynatıcı hatası, çoğu zaman geçici: önce sadece burada yeniden yükle, herkes için geçme.
+            if (e.data === 5 && k && retry.current.k !== k) retry.current = {k, n: 0}
+            if (e.data === 5 && k && retry.current.n++ < 2) { loaded.current = ''; sync(); return }
             app.showToast('Bu video burada oynatılamıyor, geçildi')
             if (k) s.tvDo({a: 'ended', k})
           },
         },
       })
     })
+    const mine = (st = ANY) => { ours.current = {st, at: performance.now()} }
     const sync = () => {
       const p = player.current
       if (!p?.getPlayerState) return
       const tv = s.tv, cur = tvCurrent(tv)
       if (!cur) {
-        if (loaded.current) { p.stopVideo(); loaded.current = '' }
+        if (loaded.current) { mine(); p.stopVideo(); loaded.current = '' }
         return
       }
       const want = tvPos(tv, performance.now())
       if (loaded.current !== cur.k) {
         loaded.current = cur.k
+        mine()
+        played.current = false
         p.loadVideoById({videoId: cur.id, startSeconds: want})
         return
       }
-      const st = p.getPlayerState()
-      if (tv.playing && st !== PLAYING && st !== BUFFERING && st !== ENDED) p.playVideo()
-      if (!tv.playing && st !== PAUSED) p.pauseVideo()
-      if (st !== BUFFERING && Math.abs(p.getCurrentTime() - want) > 1.5) p.seekTo(want, true)
+      const st = p.getPlayerState(), now = performance.now(), t = p.getCurrentTime()
+      // YouTube çubuğundan sarıldıysa herkese yay: son sağlam ölçümden beri beklenmedik sıçrama varsa kişi sarmıştır.
+      // Yüklenirken ölçülmez (sarılan yer temel olmasın); takılma geri sıçrama sayılmaz, sadece geride kalır.
+      if (st === PLAYING || st === PAUSED) {
+        const l = last.current, gap = (now - l.at) / 1000, exp = l.t + (l.st === PLAYING ? gap : 0)
+        last.current = {t, at: now, st}
+        if (ours.current.at < l.at && now - ours.current.at > 1500 && gap < 10 && (t > exp + 2.5 || t < l.t - 2.5)) {
+          mine()
+          s.tvDo({a: 'seek', pos: t})
+          return
+        }
+      }
+      if (p.getPlaybackRate?.() !== 1) p.setPlaybackRate?.(1)
+      if (tv.playing && st !== PLAYING && st !== BUFFERING && st !== ENDED) { mine(PLAYING); p.playVideo() }
+      // Kişi YouTube'dan oynat'a bastıysa yüklenirken durdurma, oynayınca herkese yayılır.
+      if (!tv.playing && st !== PAUSED && !(st === BUFFERING && userPlay.current)) { mine(PAUSED); p.pauseVideo() }
+      if (st !== BUFFERING && Math.abs(t - want) > 1.5) { mine(); p.seekTo(want, true) }
       setTime({cur: p.getCurrentTime(), dur: p.getDuration() || 0})
     }
     const timer = setInterval(sync, 700)
