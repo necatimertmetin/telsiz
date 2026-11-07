@@ -14,9 +14,17 @@ export function playable(x: {url_resolved?: unknown; hls?: unknown; codec?: unkn
   return u
 }
 
-export async function searchStations(q: string): Promise<Found[]> {
-  const p = new URLSearchParams({limit: '25', hidebroken: 'true', is_https: 'true', order: 'clickcount', reverse: 'true'})
-  if (q.trim()) p.set('name', q.trim().slice(0, 60)); else p.set('countrycode', 'TR')
+// Arama süzgeçleri: ülke kodu ve tür etiketi radio-browser'ın kendi alanları.
+export const COUNTRIES: [string, string][] = [['', 'Tüm ülkeler'], ['TR', 'Türkiye'], ['AZ', 'Azerbaycan'], ['GR', 'Yunanistan'], ['RU', 'Rusya'], ['UA', 'Ukrayna'], ['DE', 'Almanya'], ['GB', 'İngiltere'], ['US', 'ABD'], ['FR', 'Fransa'], ['IT', 'İtalya'], ['ES', 'İspanya'], ['NL', 'Hollanda'], ['BG', 'Bulgaristan'], ['RS', 'Sırbistan'], ['EG', 'Mısır'], ['IR', 'İran'], ['BR', 'Brezilya'], ['JP', 'Japonya'], ['KR', 'Kore']]
+export const GENRES: [string, string][] = [['', 'Tüm türler'], ['pop', 'Pop'], ['rock', 'Rock'], ['jazz', 'Caz'], ['blues', 'Blues'], ['classical', 'Klasik'], ['electronic', 'Elektronik'], ['hip hop', 'Hip hop'], ['rap', 'Rap'], ['metal', 'Metal'], ['folk', 'Halk müziği'], ['arabesk', 'Arabesk'], ['turkish folk', 'Türkü'], ['lounge', 'Lounge'], ['chillout', 'Chill'], ['lofi', 'Lo-fi'], ['80s', '80ler'], ['90s', '90lar'], ['news', 'Haber'], ['talk', 'Sohbet'], ['sport', 'Spor']]
+
+export async function searchStations(q: string, f: {country?: string; tag?: string} = {}): Promise<Found[]> {
+  const p = new URLSearchParams({limit: '40', hidebroken: 'true', is_https: 'true', order: 'clickcount', reverse: 'true'})
+  if (q.trim()) p.set('name', q.trim().slice(0, 60))
+  if (f.country) p.set('countrycode', f.country)
+  if (f.tag) { p.set('tag', f.tag); p.set('tagExact', 'false') }
+  // Hiçbir şey seçilmemişse Türkiye'nin sevilenleri gelir.
+  if (!q.trim() && !f.country && !f.tag) p.set('countrycode', 'TR')
   const r = await fetch(`${API}?${p}`)
   const list = await r.json() as {name?: unknown; tags?: unknown; url_resolved?: unknown; hls?: unknown; codec?: unknown}[]
   const out: Found[] = []

@@ -2,6 +2,7 @@ import {useEffect, useState, type DragEvent, type FormEvent} from 'react'
 import {faceUrl} from '../lib/faces'
 import {app, useApp} from '../lib/app'
 import {radio} from '../lib/radio'
+import {RadioPanel} from './Radio'
 import type {Session} from '../lib/session'
 import {can, dmId, isManager, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
 import type {RoomKind, VoiceState} from '../lib/types'
@@ -182,18 +183,29 @@ function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void;
   }
   return (
     <>
-      <div className="sect">Ses odaları {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={onNew}><Icon n="plus" s={15} /></button>}</div>
+      <div className="sect"><span>Ses odaları{s.settling && <span className="seeking"> · bağlanıyor</span>}</span> {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={onNew}><Icon n="plus" s={15} /></button>}</div>
       {rooms.map(r => {
         // Henüz bilinmeyen odadaki kişi ana odada gösterilir.
         const users = all.filter(u => (known.has(u.v.room ?? '') ? u.v.room ?? '' : '') === r.id)
         const n = app.unread(s, roomChat(r.id))
+        // Radyo odasında istasyon seçiliyse ve biri dinliyorsa (ya da sen arkada dinliyorsan) satır çalıyor görünür.
+        const station = r.kind === 'radio' ? s.view.stations.find(x => x.id === r.sid) : undefined
+        const bgHere = !!station && app.radioBg?.code === s.code && app.radioBg.sid === station.id && radio.playing
+        const onAir = !!station && (users.length > 0 || bgHere)
+        const mine = s.voice.in && (s.voice.room ?? '') === r.id
+        const open = () => {
+          // Seste başka odadaysan radyo odasına tıklamak seni taşımaz, radyoyu olduğun yerden açar.
+          if (r.kind === 'radio' && s.voice.in && !mine) { app.peekRadio(r.id); onNavigate(); return }
+          void app.enterRoom(r.id); onNavigate()
+        }
         return (
           <div key={r.id}>
-            <button className={'chan' + (here === r.id ? ' on' : '') + (over === r.id ? ' dropon' : '')} onClick={() => { void app.enterRoom(r.id); onNavigate() }}
+            <button className={'chan' + (here === r.id ? ' on' : '') + (over === r.id ? ' dropon' : '') + (onAir ? ' onair' : '')} onClick={open}
               onDragOver={e => { if (e.dataTransfer.types.includes(DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(r.id) } }}
               onDragLeave={() => setOver(o => o === r.id ? null : o)} onDrop={e => drop(e, r)}>
-              <Icon n={KIND_ICON[r.kind]} s={17} /><span className="ell">{r.title}</span>{n > 0 && <span className="badge in">{n}</span>}{users.length > 0 && <span className="count">{users.length}</span>}
+              {onAir ? <span className="eq" aria-label="Radyo çalıyor"><i /><i /><i /></span> : <Icon n={KIND_ICON[r.kind]} s={17} />}<span className="ell">{r.title}</span>{n > 0 && <span className="badge in">{n}</span>}{users.length > 0 && <span className="count">{users.length}</span>}
             </button>
+            {onAir && <button className="radiosub" onClick={() => app.peekRadio(r.id)} title="Radyoyu aç"><span className="ell">{(mine || bgHere) && radio.title ? radio.title : station!.title}</span></button>}
             {users.map(u => (
               <div key={u.id} className="vuser" {...dragProps(s, u.uid, u.name, true)}>
                 <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
@@ -286,7 +298,8 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: S
         <div className="radiobar">
           <Icon n="radio" s={16} />
           <span className="livetxt"><b>Radyo arkada</b><span className="ell">{radio.title ?? live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
-          <input type="range" min={0} max={1} step={.05} value={app.prefs.radioVol} aria-label="Radyo sesi" onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
+          <input type="range" min={0} max={1} step={.01} value={app.prefs.radioVol} aria-label="Radyo sesi" title={`%${Math.round(app.prefs.radioVol * 100)}`} onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
+          <button className="ico sm" aria-label="İstasyonu değiştir" title="İstasyonu değiştir" onClick={() => { if (app.radioBg) app.peekRadio(app.radioBg.rid) }}><Icon n="radio" s={15} /></button>
           <button className="ico sm" aria-label="Radyoyu kapat" title="Radyoyu kapat" onClick={() => app.stopRadioBg()}><Icon n="x" s={15} /></button>
         </div>
       )}
@@ -316,7 +329,7 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
   const {online, offline} = people(s)
   return (
     <>
-      <div className="sect">Çevrimiçi · {online.length}</div>
+      <div className="sect">{s.settling ? <span>Çevrimiçi<span className="seeking"> · aranıyor</span></span> : `Çevrimiçi · ${online.length}`}</div>
       {online.map(u => {
         const st = u.peerId ? s.stats.get(u.peerId) : undefined
         const p = u.peerId ? s.peers.get(u.peerId) : undefined
@@ -335,7 +348,8 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
           <Avatar uid={u.uid} name={u.name} s={30} /><span className="ell grow">{u.name}<small className="via">{u.via} üzerinden</small></span>
         </button>
       ))}
-      {offline.length > 0 && <div className="sect">Çevrimdışı</div>}
+      {s.settling && <div className="member seekrow"><span className="spin" aria-hidden="true" />Arkadaşların aranıyor</div>}
+      {offline.length > 0 && <div className="sect">{s.settling ? 'Henüz görünmeyenler' : 'Çevrimdışı'}</div>}
       {offline.map(u => <button className="member off" key={u.uid} title="Özel mesaj" onClick={() => openDm(u.uid, onOpen)}><Avatar uid={u.uid} name={u.name} s={30} /><span className="ell">{u.name}</span></button>)}
     </>
   )
@@ -386,7 +400,8 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setDrawer(false) }
     addEventListener('keydown', onKey)
-    return () => removeEventListener('keydown', onKey)
+    addEventListener('online', app.bump); addEventListener('offline', app.bump)
+    return () => { removeEventListener('keydown', onKey); removeEventListener('online', app.bump); removeEventListener('offline', app.bump) }
   }, [])
 
   if (!app.me.name) return <NameStep />
@@ -405,7 +420,8 @@ export function App() {
   const title = route.kind === 'voice' ? app.shownRoom(s).title
     : isDm(route.ch) ? '@ ' + chatName(s, route.ch)
     : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
-  const alone = s.peers.size === 0
+  const alone = s.peers.size === 0 && !s.settling
+  const offline = !navigator.onLine
   const liveCall = app.liveCall()
   tellPip(!!(live && liveCall && pipMedia(live, liveCall)))
   if (app.pipMode && live && liveCall) return <div className="pipwin"><MiniCall s={live} call={liveCall} full /></div>
@@ -432,7 +448,9 @@ export function App() {
         </header>
         {!app.backupSaved && <button className="backupbar" onClick={() => setModal('settings')}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
         {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
-        {!s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
+        {offline && <div className="notice warn">İnternet bağlantın yok. Bağlanınca arkadaşların ve mesajlar kendiliğinden gelir.</div>}
+        {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
+        {!offline && !s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
         {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
         {alone && (
           <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
@@ -442,6 +460,10 @@ export function App() {
       </main>
       <aside className="right"><div className="scroll"><Members s={s} /></div></aside>
 
+      {app.radioPeek !== null && (() => {
+        const r = s.view.rooms.find(x => x.id === app.radioPeek && x.kind === 'radio')
+        return r && <Modal title={r.title} wide onClose={() => app.peekRadio(null)}><RadioPanel s={s} room={r} /></Modal>
+      })()}
       {modal === 'add' && <Modal title="Grup ekle" onClose={() => setModal(null)}><GroupForm onDone={() => setModal(null)} /></Modal>}
       {modal === 'invite' && <Invite s={s} onClose={() => setModal(null)} />}
       {modal === 'settings' && <Settings s={s} onClose={() => setModal(null)} />}

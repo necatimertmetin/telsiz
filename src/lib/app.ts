@@ -141,6 +141,8 @@ class App {
   private ringTimer?: ReturnType<typeof setTimeout>
 
   constructor() {
+    // Radyonun çalma durumu her yerde (oda satırı, alt çubuk) görünsün diye uygulama genelinde dinlenir.
+    radio.onChange = () => this.bump()
     applyTheme(this.prefs.theme, this.prefs.doodle)
     applyText(this.prefs.font, this.prefs.size)
     if (!this.me.uid) this.me.uid = randomId()
@@ -287,7 +289,7 @@ class App {
   // Ses dışındayken bakılan oda. Seste iken her zaman bulunulan oda gösterilir.
   voiceRoom = ''
   // Radyo odasından başka odaya geçince istasyon arkada kısık sürebilir.
-  radioBg: {code: string; sid: string} | null = null
+  radioBg: {code: string; sid: string; rid: string} | null = null
 
   roomOf(s: Session, rid: string): VRoom {
     return s.view.rooms.find(r => r.id === rid) ?? {id: '', title: MAIN_ROOM, kind: 'voice'}
@@ -302,22 +304,29 @@ class App {
       const st = (sid?: string) => s.view.stations.find(x => x.id === sid)
       if (r.kind === 'radio') {
         const x = st(r.sid)
-        if (x) { want = {url: x.url, vol: this.prefs.radioVol}; this.radioBg = {code: s.code, sid: x.id} }
+        if (x) { want = {url: x.url, vol: this.prefs.radioVol}; this.radioBg = {code: s.code, sid: x.id, rid: r.id} }
+        else if (this.radioBg?.rid === r.id) this.radioBg = null
       } else if (this.prefs.radioBg && this.radioBg?.code === s.code) {
-        const x = st(this.radioBg.sid)
-        if (x) want = {url: x.url, vol: this.prefs.radioVol * .3}
+        // Arkadaki radyo odayı izler: odada istasyon değişirse o da değişir, kapanırsa susar.
+        const bg = this.radioBg
+        const x = st(s.view.rooms.find(q => q.id === bg.rid)?.sid)
+        if (x) { bg.sid = x.id; want = {url: x.url, vol: this.prefs.radioVol * .3} } else this.radioBg = null
       }
     }
     if (!s) this.radioBg = null
     radio.set(want && {...want, sink: this.prefs.speakerId})
   }
   stopRadioBg() { this.radioBg = null; this.bump() }
+  // Seste başka odadayken radyo odasını yerinden kalkmadan açıp yönetmek için.
+  radioPeek: string | null = null
+  peekRadio(rid: string | null) { this.radioPeek = rid; this.bump() }
 
   // Ses odasına geç: seste değilsen katılır, aynı gruptaysan bağlantı kopmadan oda değişir.
   async enterRoom(rid: string) {
     const s = this.session
     if (!s) return
     this.voiceRoom = rid
+    this.radioPeek = null
     this.route = {kind: 'voice'}
     if (s.voice.in) { this.calls.get(s.code)?.setRoom(rid); this.markRead() }
     this.bump()

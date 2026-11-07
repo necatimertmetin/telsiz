@@ -1,6 +1,7 @@
 import type {Box, Channel, Ev, FileMeta, Msg, PermKey, Poll, RoomKind, Sched, Station, View, VRoom, Who} from './types'
 
 export const MAX_TEXT = 4000
+export const RADIO_OFF = 'off'
 const str = (v: unknown, max: number): v is string => typeof v === 'string' && v.length > 0 && v.length <= max
 
 function validFile(f: unknown): f is FileMeta {
@@ -198,7 +199,9 @@ export function materialize(events: Iterable<Ev>, fallbackTitle = 'Grup'): View 
     } else if (e.t === 'tune') {
       // Radyo odasında çalanı odaya giren herkes değiştirebilir; listede olmayan istasyon çalınmaz.
       const r = rooms.get(e.rid)
-      if (r?.kind === 'radio' && stations.has(e.sid)) { r.sid = e.sid; r.tunedBy = e.name }
+      // 'off' radyoyu odadaki herkes için kapatır; eski sürümler bunu bilinmeyen istasyon sayıp yok sayar.
+      if (r?.kind === 'radio' && e.sid === RADIO_OFF) { r.sid = undefined; r.tunedBy = e.name }
+      else if (r?.kind === 'radio' && stations.has(e.sid)) { r.sid = e.sid; r.tunedBy = e.name }
     }
   }
   const msgs = new Map<string, Msg[]>()

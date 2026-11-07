@@ -310,10 +310,10 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .permrow b{flex:none;font-weight:600;color:var(--dim)}
 .teamsbtn{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
 .teamsbtn .btn{min-height:44px}
-.radiobar{display:flex;align-items:center;gap:8px;border-top:1px solid var(--line);padding:6px 8px 6px 12px;color:var(--acc)}
-.radiobar .livetxt{flex:1;min-width:0;display:flex;flex-direction:column;font-size:13.5px}
+.radiobar{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;border-top:1px solid var(--line);padding:6px 8px 6px 12px;color:var(--acc)}
+.radiobar .livetxt{flex:1 1 calc(100% - 30px);min-width:0;display:flex;flex-direction:column;font-size:13.5px}
 .radiobar .livetxt span{color:var(--dim)}
-.radiobar input[type=range]{width:72px;flex:none;accent-color:var(--acc)}
+.radiobar input[type=range]{flex:1;min-width:60px;accent-color:var(--acc)}
 .radio{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:20px;width:100%;max-width:980px;margin:0 auto}
 .radionow{display:flex;flex-direction:column;justify-content:center;gap:14px;min-width:0}
 .radionow h2{margin:0;font-size:clamp(28px,5vw,48px);line-height:1.05;overflow-wrap:anywhere}
@@ -425,3 +425,20 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .pipcall.full .tv .tvscreen,.pipcall.full .tv.cinema .tvscreen{height:auto;flex:1}
 .pipcall.full .tile{height:auto}
 .pipcall.full .tvbar [aria-label="Tam ekran"],.pipcall.full .tvbar [aria-label="Önceki"],.pipcall.full .tvbar [aria-label="Sonraki"]{display:none}
+
+/* Açılışta bağlanırken: "kimse yok" yerine "aranıyor" */
+.seeking{text-transform:none;letter-spacing:0;font-weight:500;color:var(--acc)}
+.spin{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--acc);animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.seekrow{color:var(--dim);font-size:14px;gap:10px;padding:6px 14px}
+.notice.seekbar{display:flex;align-items:center;gap:10px}
+/* Radyo odası çalarken satırdaki küçük ekolayzer */
+.chan.onair{color:var(--tx)}
+.eq{display:inline-flex;align-items:flex-end;gap:2px;width:17px;height:15px;flex:none;justify-content:center}
+.eq i{width:3px;background:var(--acc);border-radius:1px;animation:eq 1s ease-in-out infinite}
+.eq i:nth-child(2){animation-delay:-.35s}.eq i:nth-child(3){animation-delay:-.7s}
+@keyframes eq{0%,100%{height:4px}50%{height:15px}}
+.radiosub{display:flex;width:calc(100% - 16px);margin:0 8px 2px;padding:2px 8px 4px 33px;font-size:13px;color:var(--acc);text-align:left}
+.radiosub:hover{text-decoration:underline}
+.stfilter select{flex:1;min-width:0}
+@media (prefers-reduced-motion:reduce){.eq i,.spin{animation:none}.eq i{height:9px}}

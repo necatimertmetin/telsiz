@@ -76,6 +76,11 @@ describe('radyo', () => {
     const v = materialize([group(), room('1', 2, 'a', 'Radyo', true, 'radio'), st('2', 3, 'a'), {...b('4', 4, 'u'), t: 'tune', rid: 'x1', sid: 's2'}, {...st('2', 5, 'a', undefined, false), id: '5'}])
     expect(v.rooms[0].sid).toBeUndefined()
   })
+  it('radyo odadaki herkes için kapatılır, sonra yeniden açılır', () => {
+    const base = [group(), room('1', 2, 'a', 'Radyo', true, 'radio'), st('2', 3, 'a'), {...b('4', 4, 'u'), t: 'tune', rid: 'x1', sid: 's2'}, {...b('5', 5, 'u'), t: 'tune', rid: 'x1', sid: 'off'}]
+    expect(materialize(base as never).rooms[0]).toMatchObject({sid: undefined, tunedBy: 'U'})
+    expect(materialize([...base, {...b('6', 6, 'u'), t: 'tune', rid: 'x1', sid: 's2'}] as never).rooms[0].sid).toBe('s2')
+  })
   it('ses odasında istasyon seçilmez', () => {
     const v = materialize([group(), room('1', 2, 'a'), st('2', 3, 'a'), {...b('4', 4, 'u'), t: 'tune', rid: 'x1', sid: 's2'}])
     expect(v.rooms[0].sid).toBeUndefined()

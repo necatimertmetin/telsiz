@@ -68,6 +68,8 @@ function testBlock(uid: string) {
   }}
 }
 
+const SETTLE_MS = 15000
+
 export class Session {
   readonly events = new Map<string, Ev>()
   readonly peers = new Map<string, Presence>()
@@ -106,8 +108,13 @@ export class Session {
   get tv(): TvState { return this.tvs.get(this.tvRoom) ?? TV_EMPTY }
   private tvSubs = new Set<() => void>()
 
+  // Açılıştan sonraki ilk saniyelerde kimse görünmüyorsa bu "kimse yok" değil, "aranıyor" demektir.
+  readonly born = Date.now()
+  get settling() { return this.peers.size === 0 && Date.now() - this.born < SETTLE_MS }
+
   constructor(readonly code: string, private me: Me, private fallbackTitle: string, private hooks: Hooks, turn: RTCIceServer[], private identity: Promise<Identity>) {
     this.view = materialize([], fallbackTitle)
+    setTimeout(() => this.hooks.changed(), SETTLE_MS + 50)
     this.room = joinRoom(
       {appId: 'telsiz-p2p-v1', password: code, relayConfig: {redundancy: 5, warnOnRelayFailure: false}, rtcPolyfill: LowLatencyPC, ...(turn.length ? {turnConfig: turn} : {})} as never,
       code,
