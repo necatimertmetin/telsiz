@@ -203,7 +203,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <div className="doodles" role="group" aria-label="Sohbet arka planı">
           {DOODLES.map(d => (
             <button key={d.id} aria-pressed={doodleOf(p.doodle) === d.id} onClick={() => { set('doodle', d.id); applyTheme(p.theme, d.id) }}>
-              <i className={'doodleprev' + (d.id === 'tone' ? ' tone' : '')} data-off={d.id === 'off' || undefined} />
+              <i className={'doodleprev ' + d.id} data-off={d.id === 'off' || undefined} />
               {d.name}
             </button>
           ))}

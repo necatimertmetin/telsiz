@@ -112,6 +112,8 @@ export const can = (v: Pick<View, 'owner' | 'admins' | 'perms'>, uid: string, ke
   const w = v.perms[key]
   return uid === v.owner || (w === 'all' && !!uid) || (w === 'admin' && v.admins.has(uid))
 }
+// Birini başka ses odasına almak: yöneticiler hep, takım dağıtma yetkisi olan da.
+export const canMove = (v: Pick<View, 'owner' | 'admins' | 'perms'>, uid: string) => isManager(v, uid) || can(v, uid, 'teams')
 // Takım dağıtan kişi oda yetkisi olmasa da 'Takım N' odasını kurabilir, başka oda kuramaz.
 export const TEAM_ROOM = /^Takım [1-4]$/
 export const MAIN_ROOM = 'Telsiz odası'

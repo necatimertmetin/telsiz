@@ -1,6 +1,6 @@
 import {getRelaySockets, joinRoom, selfId} from 'trystero'
 import {isLook} from './faces'
-import {can, canAccept, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
+import {can, canAccept, canMove, dmMembers, isDm, materialize, missingFor, pinResult, shouldPurge, validEvent, visibleTo} from './history'
 import {codeHash, openBox, sealBox, signEvent, signText, validPk, verifyEvent, verifyText, type Identity} from './identity'
 import * as db from './db'
 import {TV_EMPTY, tvApply, tvNewer, tvPos, validTv, ytId, type TvAction, type TvState} from './tv'
@@ -121,11 +121,11 @@ export class Session {
       hello: r.makeAction('hello'), ids: r.makeAction('ids'), ev: r.makeAction('ev'), typing: r.makeAction('typing'),
       ring: r.makeAction('ring'), have: r.makeAction('have', {kind: 'request'}), req: r.makeAction('freq'), chunk: r.makeAction('chunk'), seen: r.makeAction('seen'), prof: r.makeAction('prof'), sfx: r.makeAction('sfx'), auth: r.makeAction('auth'), tv: r.makeAction('tv'), move: r.makeAction('move'),
     }
-    // Takım dağıtma: gönderenin kimliği bağlantıdan bilinir, yetkisi yoksa yok sayılır.
+    // Takım dağıtma ve yöneticinin sürükleyip taşıması: gönderenin kimliği bağlantıdan bilinir, yetkisi yoksa yok sayılır.
     this.a.move.onMessage = (d: {to?: Record<string, string>}, {peerId}: {peerId: string}) => {
       const by = this.authed.get(peerId)
       const room = d?.to && typeof d.to === 'object' ? d.to[this.me.uid] : undefined
-      if (!by || typeof room !== 'string' || !can(this.view, by, 'teams')) return
+      if (!by || typeof room !== 'string' || !canMove(this.view, by)) return
       if (room && !this.view.rooms.some(x => x.id === room)) return
       this.hooks.move(this, room, this.view.people.get(by) ?? this.peers.get(peerId)?.name ?? 'Biri')
     }

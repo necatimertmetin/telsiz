@@ -1,4 +1,5 @@
 import {validStreamUrl} from './history'
+import {androidPlugin, desktop} from './native'
 
 // Radyo yayını kimseye aktarılmaz: odadaki herkes aynı istasyonu kendi cihazında açar.
 // Böylece yükleme hızı harcanmaz, yayın kalitesi de kişiden kişiye bozulmaz.
@@ -33,12 +34,77 @@ export async function searchStations(q: string): Promise<Found[]> {
 
 type Want = {url: string; vol: number; sink: string} | null
 
+const KEY = new TextEncoder().encode("StreamTitle='")
+function find(buf: Uint8Array, key: Uint8Array, from: number) {
+  outer: for (let i = Math.max(0, from); i + key.length <= buf.length; i++) {
+    for (let j = 0; j < key.length; j++) if (buf[i + j] !== key[j]) continue outer
+    return i
+  }
+  return -1
+}
+
+// Tarayıcı çoğu yayında akışın içini okumaya izin vermez (CORS); izin verenlerde çalışır.
+async function webTitle(url: string): Promise<string | null> {
+  const ac = new AbortController()
+  const t = setTimeout(() => ac.abort(), 10000)
+  try {
+    const r = await fetch(url, {headers: {'Icy-MetaData': '1'}, signal: ac.signal})
+    const rd = r.body!.getReader()
+    let buf = new Uint8Array(0)
+    while (buf.length < 400000) {
+      const {value, done} = await rd.read()
+      if (done) break
+      const n = new Uint8Array(buf.length + value.length); n.set(buf); n.set(value, buf.length); buf = n
+      const i = find(buf, KEY, 0)
+      if (i < 0) continue
+      const s = i + KEY.length
+      let e = -1
+      for (let k = s; k + 1 < buf.length; k++) if (buf[k] === 39 && buf[k + 1] === 59) { e = k; break }
+      if (e < 0) continue
+      const raw = buf.subarray(s, e), u = new TextDecoder().decode(raw)
+      return (u.includes(String.fromCharCode(0xfffd)) ? new TextDecoder('windows-1254').decode(raw) : u).slice(0, 200)
+    }
+    return null
+  } catch { return null } finally { clearTimeout(t); ac.abort() }
+}
+
+// Şu an çalan şarkı: uygulamada doğrudan, tarayıcıda izin veren yayınlarda.
+export async function readTitle(url: string): Promise<string | null> {
+  const d = desktop()?.radioTitle, a = androidPlugin()?.radioTitle
+  const t = d ? await d(url).catch(() => null) : a ? (await a({url}).catch(() => ({title: undefined}))).title ?? null : await webTitle(url)
+  return cleanTitle(t)
+}
+
+// Bazı Türk yayınları eski kodlamayı yanlış çevirip gönderir: "HER ÞEY BÝTMEDÝ" gibi.
+// Þ Ý Ð þ ý ð Türkçede yok, bunlar Ş İ Ğ ş ı ğ olmalı.
+const FIX: Record<string, string> = {'Þ': 'Ş', 'Ý': 'İ', 'Ð': 'Ğ', 'þ': 'ş', 'ý': 'ı', 'ð': 'ğ'}
+export function cleanTitle(t: string | null | undefined): string | null {
+  const clean = t?.replace(/[ÞÝÐþýð]/g, c => FIX[c]).replace(/\s+/g, ' ').trim().slice(0, 200) ?? ''
+  return clean && !/^[-\s|]*$/.test(clean) ? clean : null
+}
+
 class RadioPlayer {
   private el: HTMLAudioElement | null = null
   private url = ''
   failed = ''
   playing = false
+  title: string | null = null
   onChange?: () => void
+  private poll: ReturnType<typeof setTimeout> | null = null
+
+  // Çalarken 30 sn'de bir şarkı adına bakılır; yayın değişince ya da durunca bırakılır.
+  private watch() {
+    if (this.poll) clearTimeout(this.poll)
+    const url = this.url
+    if (!url) return
+    const tick = async () => {
+      const t = await readTitle(url)
+      if (this.url !== url) return
+      if (t !== this.title) { this.title = t; this.onChange?.() }
+      this.poll = setTimeout(() => void tick(), 30000)
+    }
+    this.poll = setTimeout(() => void tick(), 1500)
+  }
 
   set(w: Want) {
     if (!w) return this.stop()
@@ -56,6 +122,8 @@ class RadioPlayer {
     this.url = w.url
     this.playing = false
     this.failed = ''
+    this.title = null
+    this.watch()
     el.src = w.url
     void el.play().catch(() => { /* ilk dokunuşta yeniden denenir */ })
   }
@@ -70,6 +138,8 @@ class RadioPlayer {
     this.el.load()
     this.url = ''
     this.playing = false
+    this.title = null
+    if (this.poll) clearTimeout(this.poll)
     this.onChange?.()
   }
 }

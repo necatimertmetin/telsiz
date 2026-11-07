@@ -92,6 +92,10 @@ a{color:var(--acc)}
 @keyframes rec{to{opacity:.3}}
 .ping{font:500 11.5px "JetBrains Mono",monospace;color:var(--dim)}
 .onlymobile{display:none}
+.shell.noside .side{display:none}
+.shell.nomembers{grid-template-columns:auto minmax(0,1fr)}.shell.nomembers .right{display:none}
+.chan.dropon{background:color-mix(in srgb,var(--acc) 22%,transparent);color:var(--tx);outline:2px dashed var(--acc);outline-offset:-2px}
+[draggable=true]{cursor:grab}
 
 .chat{flex:1;display:flex;flex-direction:column;position:relative;min-height:0;overflow:hidden}
 .log{flex:1;min-height:0;overflow-y:auto;padding:12px 0 4px;overscroll-behavior:contain}
@@ -264,12 +268,14 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .devmenu button:hover{background:var(--bg3)}
 .devmenu button.on{color:var(--acc)}
 
-@media (max-width:1100px){.shell{grid-template-columns:auto minmax(0,1fr)}.right{display:none}}
+@media (max-width:1100px){.shell{grid-template-columns:auto minmax(0,1fr)}.right{display:none}.onlyxl{display:none}}
 @media (max-width:760px){
   .shell{display:block;position:relative;overflow:hidden}
   .main{height:100%}
   .onlymobile{display:block}
   .ico.onlymobile{display:inline-flex}
+  .onlywide{display:none}
+  .shell.noside .side{display:flex}
   .left{position:fixed;inset:0 auto 0 0;box-sizing:border-box;padding-top:var(--safe-top);width:min(310px,88vw);transform:translateX(-100%);transition:transform .18s;z-index:10}
   .side{flex:1;width:auto}
   .drawer .left{transform:none}
@@ -379,6 +385,8 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 [data-doodle] .chat{isolation:isolate}
 [data-doodle] .chat::before,.doodleprev::before{content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;background:var(--tx);opacity:.06;-webkit-mask:url(./doodle-line.svg) 0 0/520px 520px repeat;mask:url(./doodle-line.svg) 0 0/520px 520px repeat}
 [data-doodle=tone] .chat::before,.doodleprev.tone::before{-webkit-mask-image:url(./doodle-tone.svg);mask-image:url(./doodle-tone.svg)}
+[data-doodle=tac-line] .chat::before,.doodleprev.tac-line::before{-webkit-mask-image:url(./doodle-tac-line.svg);mask-image:url(./doodle-tac-line.svg)}
+[data-doodle=tac-tone] .chat::before,.doodleprev.tac-tone::before{-webkit-mask-image:url(./doodle-tac-tone.svg);mask-image:url(./doodle-tac-tone.svg)}
 .doodles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
 .doodles button{display:flex;flex-direction:column;gap:8px;padding:8px;border-radius:10px;border:2px solid var(--line);text-align:left;font-weight:600;font-size:14px}
 .doodles button[aria-pressed=true]{border-color:var(--acc)}
@@ -410,3 +418,10 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .pipbar [aria-label="Küçült"] svg{transform:rotate(180deg)}
 .pipbar .livetxt{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left;padding:2px 4px}
 .pipbar .livetxt span{font-size:12px;color:var(--dim);max-width:100%}
+.radiosong{display:flex;align-items:center;gap:6px;color:var(--acc);font-weight:600;max-width:100%}
+.pipwin{position:fixed;inset:0;background:#000;display:flex}
+.pipcall.full{position:static;width:100%;height:100%;border:0;border-radius:0;box-shadow:none}
+.pipcall.full .tv,.pipcall.full>.tile{flex:1;min-height:0}
+.pipcall.full .tv .tvscreen,.pipcall.full .tv.cinema .tvscreen{height:auto;flex:1}
+.pipcall.full .tile{height:auto}
+.pipcall.full .tvbar [aria-label="Tam ekran"],.pipcall.full .tvbar [aria-label="Önceki"],.pipcall.full .tvbar [aria-label="Sonraki"]{display:none}

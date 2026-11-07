@@ -1,8 +1,9 @@
-import {useEffect, useState, type FormEvent} from 'react'
+import {useEffect, useState, type DragEvent, type FormEvent} from 'react'
 import {faceUrl} from '../lib/faces'
 import {app, useApp} from '../lib/app'
+import {radio} from '../lib/radio'
 import type {Session} from '../lib/session'
-import {can, dmId, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
+import {can, dmId, isManager, dmOthers, isDm, MAIN_ROOM, roleName, roomChat} from '../lib/history'
 import type {RoomKind, VoiceState} from '../lib/types'
 import {desktop} from '../lib/native'
 import {colorFor, initials, parseInvite} from '../lib/util'
@@ -10,7 +11,7 @@ import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {Modal} from './Modal'
 import {Settings} from './Settings'
-import {MiniCall, VoiceStage} from './Voice'
+import {MiniCall, pipMedia, VoiceStage} from './Voice'
 
 export const PUBLIC_URL = 'https://necatimertmetin.github.io/telsiz/'
 
@@ -150,6 +151,13 @@ function NewRoom({s, onClose}: {s: Session; onClose: () => void}) {
   )
 }
 
+// Yönetici (ya da kurucu) çevrimiçi birini sol taraftaki bir ses odasına sürükler: sesteyse oraya geçer, değilse çağrı alır.
+const DRAG = 'application/x-telsiz-uid'
+function dragProps(s: Session, uid: string, name: string, inVoice: boolean) {
+  if (uid === app.me.uid || !isManager(s.view, app.me.uid)) return {}
+  return {draggable: true, onDragStart: (e: DragEvent) => { e.dataTransfer.setData(DRAG, JSON.stringify({uid, name, inVoice})); e.dataTransfer.effectAllowed = 'move' }}
+}
+
 type VUser = {id: string; uid: string; name: string; v: VoiceState}
 
 function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void; onNew: () => void}) {
@@ -162,6 +170,16 @@ function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void;
   const known = new Set(s.view.rooms.map(r => r.id))
   const rooms = [{id: '', title: MAIN_ROOM, kind: 'voice' as RoomKind}, ...s.view.rooms]
   const here = app.route.kind === 'voice' ? app.shownRoom(s).id : null
+  const [over, setOver] = useState<string | null>(null)
+  const drop = (e: DragEvent, r: {id: string; title: string}) => {
+    setOver(null)
+    const raw = e.dataTransfer.getData(DRAG)
+    if (!raw) return
+    e.preventDefault()
+    const u = JSON.parse(raw) as {uid: string; name: string; inVoice: boolean}
+    s.sendMove({[u.uid]: r.id})
+    app.showToast(u.inVoice ? `${u.name}, ${r.title} odasına alındı` : `${u.name}, ${r.title} odasına çağrıldı`)
+  }
   return (
     <>
       <div className="sect">Ses odaları {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={onNew}><Icon n="plus" s={15} /></button>}</div>
@@ -171,11 +189,13 @@ function VoiceRooms({s, onNavigate, onNew}: {s: Session; onNavigate: () => void;
         const n = app.unread(s, roomChat(r.id))
         return (
           <div key={r.id}>
-            <button className={'chan' + (here === r.id ? ' on' : '')} onClick={() => { void app.enterRoom(r.id); onNavigate() }}>
+            <button className={'chan' + (here === r.id ? ' on' : '') + (over === r.id ? ' dropon' : '')} onClick={() => { void app.enterRoom(r.id); onNavigate() }}
+              onDragOver={e => { if (e.dataTransfer.types.includes(DRAG)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(r.id) } }}
+              onDragLeave={() => setOver(o => o === r.id ? null : o)} onDrop={e => drop(e, r)}>
               <Icon n={KIND_ICON[r.kind]} s={17} /><span className="ell">{r.title}</span>{n > 0 && <span className="badge in">{n}</span>}{users.length > 0 && <span className="count">{users.length}</span>}
             </button>
             {users.map(u => (
-              <div key={u.id} className="vuser">
+              <div key={u.id} className="vuser" {...dragProps(s, u.uid, u.name, true)}>
                 <Avatar uid={u.uid} name={u.name} s={22} on={call.speaking.has(u.id)} />
                 <span className="ell">{u.name}</span>
                 {u.v.muted && <Icon n="micOff" s={14} />}{u.v.cam && <Icon n="video" s={14} />}{u.v.screen && <Icon n="screen" s={14} />}{u.v.sAudio && <span title="Ekran sesi yayında" className="saudio"><Icon n="speaker" s={14} /></span>}
@@ -265,7 +285,7 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: S
       {live && app.radioBg && app.roomOf(live, live.voice.room ?? '').kind !== 'radio' && (
         <div className="radiobar">
           <Icon n="radio" s={16} />
-          <span className="livetxt"><b>Radyo arkada</b><span className="ell">{live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
+          <span className="livetxt"><b>Radyo arkada</b><span className="ell">{radio.title ?? live.view.stations.find(x => x.id === app.radioBg?.sid)?.title}</span></span>
           <input type="range" min={0} max={1} step={.05} value={app.prefs.radioVol} aria-label="Radyo sesi" onChange={e => { app.prefs.radioVol = +e.target.value; app.savePrefs() }} />
           <button className="ico sm" aria-label="Radyoyu kapat" title="Radyoyu kapat" onClick={() => app.stopRadioBg()}><Icon n="x" s={15} /></button>
         </div>
@@ -301,7 +321,7 @@ function Members({s, onOpen}: {s: Session; onOpen?: () => void}) {
         const st = u.peerId ? s.stats.get(u.peerId) : undefined
         const p = u.peerId ? s.peers.get(u.peerId) : undefined
         return (
-          <button className="member" key={u.key} disabled={u.key === 'me'} title={u.key === 'me' ? '' : 'Özel mesaj'} onClick={() => openDm(u.uid, onOpen)}>
+          <button className="member" key={u.key} disabled={u.key === 'me'} title={u.key === 'me' ? '' : isManager(s.view, app.me.uid) ? 'Özel mesaj. Ses odasına almak için sürükle' : 'Özel mesaj'} onClick={() => openDm(u.uid, onOpen)} {...dragProps(s, u.uid, u.name, !!p?.voice.in)}>
             <Avatar uid={u.uid} name={u.name} s={30} />
             <span className="ell grow">{u.name}{u.key === 'me' ? ' (sen)' : ''}</span>
             {roleName(s.view, u.uid) && <span className="role">{roleName(s.view, u.uid)}</span>}
@@ -348,6 +368,14 @@ function SourcePicker() {
   )
 }
 
+// Windows uygulamasına küçültünce gösterilecek görüntü var mı diye söylenir (değişince bir kez).
+let pipSent: boolean | null = null
+function tellPip(on: boolean) {
+  if (on === pipSent) return
+  pipSent = on
+  desktop()?.setPipAvail?.(on)
+}
+
 export function App() {
   useApp()
   const [modal, setModal] = useState<'add' | 'invite' | 'settings' | 'private' | 'room' | null>(null)
@@ -378,9 +406,12 @@ export function App() {
     : isDm(route.ch) ? '@ ' + chatName(s, route.ch)
     : '# ' + (s.view.channels.find(c => c.id === route.ch)?.title ?? 'genel')
   const alone = s.peers.size === 0
+  const liveCall = app.liveCall()
+  tellPip(!!(live && liveCall && pipMedia(live, liveCall)))
+  if (app.pipMode && live && liveCall) return <div className="pipwin"><MiniCall s={live} call={liveCall} full /></div>
 
   return (
-    <div className={'shell' + (drawer ? ' drawer' : '')}>
+    <div className={'shell' + (drawer ? ' drawer' : '') + (app.prefs.hideSide ? ' noside' : '') + (app.prefs.hideMembers ? ' nomembers' : '')}>
       <div className="scrim" onClick={() => setDrawer(false)} />
       <div className="left">
         <Rail onAdd={() => setModal('add')} />
@@ -389,6 +420,7 @@ export function App() {
       <main className="main">
         <header className="topbar">
           <button className="ico onlymobile" aria-label="Menü" onClick={() => setDrawer(true)}><Icon n="menu" /></button>
+          <button className="ico onlywide" title={app.prefs.hideSide ? 'Kanalları göster' : 'Kanalları gizle'} aria-label={app.prefs.hideSide ? 'Kanalları göster' : 'Kanalları gizle'} aria-pressed={!app.prefs.hideSide} onClick={() => { app.prefs.hideSide = !app.prefs.hideSide; app.savePrefs() }}><Icon n="menu" /></button>
           {searching && app.route.kind === 'text'
             ? <input className="searchbox grow" autoFocus placeholder="Mesajlarda ara" value={app.search} aria-label="Mesajlarda ara" onChange={e => { app.search = e.target.value; app.bump() }} onKeyDown={e => { if (e.key === 'Escape') { setSearching(false); app.search = ''; app.bump() } }} />
             : <strong className="ell grow">{title}</strong>}
@@ -396,6 +428,7 @@ export function App() {
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Sesli katıl" aria-label="Sesli katıl" onClick={() => void app.joinVoice()}><Icon n="wave" /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Görüntülü katıl" aria-label="Görüntülü katıl" onClick={() => void app.joinVoice(true)}><Icon n="video" /></button>}
           <button className="ico" title="Davet et" aria-label="Davet et" onClick={() => setModal('invite')}><Icon n="link" /></button>
+          <button className="ico onlyxl" title={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-label={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-pressed={!app.prefs.hideMembers} onClick={() => { app.prefs.hideMembers = !app.prefs.hideMembers; app.savePrefs() }}><Icon n="users" /></button>
         </header>
         {!app.backupSaved && <button className="backupbar" onClick={() => setModal('settings')}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
         {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}

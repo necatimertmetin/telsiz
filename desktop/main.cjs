@@ -15,6 +15,31 @@ if (!app.requestSingleInstanceLock()) app.quit()
 
 let win, tray, quitting = false, picked = null, pickedAudio = false
 
+// Radyoda çalan şarkı: yayın akışının içine gömülü "StreamTitle" okunur. Tarayıcı çoğu yayında
+// bunu engeller (CORS), uygulama doğrudan okur. En fazla 400 KB ve 10 sn, sonra bağlantı kapanır.
+async function radioTitle(url) {
+  if (typeof url !== 'string' || !/^https:\/\/[^\s"'<>]+$/.test(url)) return null
+  const ac = new AbortController()
+  const t = setTimeout(() => ac.abort(), 10000)
+  try {
+    const r = await fetch(url, {headers: {'Icy-MetaData': '1'}, signal: ac.signal})
+    const rd = r.body.getReader()
+    let buf = Buffer.alloc(0)
+    while (buf.length < 400000) {
+      const {value, done} = await rd.read()
+      if (done) break
+      buf = Buffer.concat([buf, value])
+      const i = buf.indexOf("StreamTitle='")
+      if (i < 0) continue
+      const j = buf.indexOf("';", i + 13)
+      if (j < 0) continue
+      const raw = buf.subarray(i + 13, j), s = raw.toString('utf8')
+      return (s.includes(String.fromCharCode(0xfffd)) ? new TextDecoder('windows-1254').decode(raw) : s).slice(0, 200)
+    }
+    return null
+  } catch { return null } finally { clearTimeout(t); ac.abort() }
+}
+
 // Oyunun içine girmez, sıradan bir üst pencere: tıklamalar oyuna geçer, odak almaz.
 // Bu yüzden özel tam ekranda görünmez, pencereli tam ekranda görünür.
 let overlay = null
@@ -33,6 +58,30 @@ function setOverlay(people) {
   }
   const send = () => { overlay?.webContents.send('people', people); overlay?.showInactive() }
   if (overlay.webContents.isLoading()) overlay.webContents.once('did-finish-load', send); else send()
+}
+
+// Küçük pencere: simge durumuna küçültünce izlenecek görüntü varsa (YouTube, ekran, kamera) pencere küçülüp
+// sağ altta üstte kalır, sayfa sadece görüntüyü gösterir. Görüntü yoksa normal küçülür. Büyüt eski boyuta döner.
+let pipAvail = false, pipBounds = null
+function enterPip() {
+  if (!win || pipBounds || !pipAvail) return
+  pipBounds = win.getNormalBounds()
+  const a = require('electron').screen.getDisplayMatching(pipBounds).workArea
+  const w = 420, h = 290
+  win.restore()
+  win.setMinimumSize(260, 180)
+  win.setBounds({x: a.x + a.width - w - 16, y: a.y + a.height - h - 16, width: w, height: h})
+  win.setAlwaysOnTop(true, 'floating')
+  win.webContents.send('pip-mode', true)
+}
+function exitPip() {
+  if (!win || !pipBounds) return
+  win.setAlwaysOnTop(false)
+  win.setMinimumSize(420, 500)
+  if (win.isMinimized()) win.restore()
+  win.setBounds(pipBounds)
+  pipBounds = null
+  win.webContents.send('pip-mode', false)
 }
 
 // Bas-konuş: tuş durumu sorgulanır. Klavye kancası ya da oyuna müdahale yok.
@@ -122,6 +171,7 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => { if (new URL(url).origin !== ORIGIN) e.preventDefault() })
   // Çarpı tepsiye indirir: oyundayken görüşme yanlışlıkla kapanmasın.
   win.on('close', e => { if (!quitting) { e.preventDefault(); win.hide(); trayHint() } })
+  win.on('minimize', () => { if (pipAvail && !pipBounds) setTimeout(enterPip, 60) })
 }
 
 app.whenReady().then(() => {
@@ -148,10 +198,13 @@ app.whenReady().then(() => {
   ipcMain.handle('check-update', () => checkUpdate())
   ipcMain.handle('adblock', (_e, on) => setAdblock(!!on))
   ipcMain.handle('adblock-on', () => adOnDisk())
+  ipcMain.handle('radio-title', (_e, url) => radioTitle(url))
   if (adOnDisk()) void setAdblock(true)
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
   ipcMain.on('ptt', (_e, vk) => setPtt(vk))
   ipcMain.on('overlay', (_e, people) => setOverlay(people))
+  ipcMain.on('pip-avail', (_e, on) => { pipAvail = !!on; if (!pipAvail) exitPip() })
+  ipcMain.on('pip-exit', () => exitPip())
 
   createWindow()
 

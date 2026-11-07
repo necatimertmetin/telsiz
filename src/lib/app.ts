@@ -95,7 +95,7 @@ export function applyText(font: string, size: number) {
   r.style.setProperty('--z', String(z))
 }
 
-export const DOODLES = [{id: 'off', name: 'Düz'}, {id: 'line', name: 'Çizgili desen'}, {id: 'tone', name: 'Tonlu desen'}] as const
+export const DOODLES = [{id: 'off', name: 'Düz'}, {id: 'line', name: 'Çizgili desen'}, {id: 'tone', name: 'Tonlu desen'}, {id: 'tac-line', name: 'Taktik çizgili'}, {id: 'tac-tone', name: 'Taktik tonlu'}] as const
 // Eski sürümde desen açık/kapalıydı.
 export const doodleOf = (v: string | boolean) => v === true ? 'line' : DOODLES.some(d => d.id === v) ? v as string : 'off'
 
@@ -117,7 +117,7 @@ class App {
   active: string | null = null
   route: Route = {kind: 'text', ch: 'genel'}
   roomChatOpen = false
-  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean; theme: string; doodle: string | boolean; font: string; size: number}>('prefs', {theme: 'gece', doodle: 'off', font: 'barlow', size: 1, radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
+  prefs = load<AudioPrefs & {gameMode: boolean; sounds: boolean; pttVk: number; pttLabel: string; sfx: boolean; overlay: boolean; shareAudio: boolean; radioVol: number; radioBg: boolean; theme: string; doodle: string | boolean; font: string; size: number; hideSide: boolean; hideMembers: boolean}>('prefs', {hideSide: false, hideMembers: false, theme: 'gece', doodle: 'off', font: 'barlow', size: 1, radioVol: .6, radioBg: true, micId: '', speakerId: '', camId: '', gate: 0, noise: true, gameMode: false, sounds: true, ptt: false, screenQ: '1080p60', pttVk: 86, pttLabel: 'V', sfx: true, overlay: true, screenGain: 1, shareAudio: true, micGain: 1, outVol: 1})
   volumes = load<Record<string, number>>('vol', {})
   turn = load<{raw: string}>('turn', {raw: ''})
   lastRead = load<Record<string, number>>('read', {})
@@ -126,6 +126,8 @@ class App {
   search = ''
   profiles = load<Record<string, Profile>>('prof', {})
   rejoin: string | null = null
+  // Windows'ta küçültünce sadece görüntüyü gösteren küçük pencere.
+  pipMode = false
   backupSaved = load<{v: boolean}>('backup2', {v: false}).v
   pins = load<Record<string, string>>('pins', {})
   keys: KeysJwk | null = load<{k: KeysJwk | null}>('keys', {k: null}).k
@@ -161,6 +163,16 @@ class App {
     })
     addEventListener('hashchange', () => this.readHash())
     this.setupPtt()
+    desktop()?.onPipMode?.(on => { this.pipMode = on; this.bump() })
+    // Tarayıcıda sekme arkaya geçince (görüşmedeyken) Chrome kendiliğinden küçük pencere açabilir:
+    // arkadaşın ekranı ya da kamerası oraya alınır. YouTube başka siteden geldiği için alınamaz.
+    try {
+      navigator.mediaSession?.setActionHandler('enterpictureinpicture' as MediaSessionAction, async () => {
+        const v = [...document.querySelectorAll('video')].filter(x => x.srcObject && x.videoWidth && !x.classList.contains('mirror'))
+          .sort((a, b) => b.videoWidth - a.videoWidth)[0]
+        await v?.requestPictureInPicture().catch(() => {})
+      })
+    } catch { /* desteklenmiyor */ }
     desktop()?.onUpdate?.(() => {
       this.update = {label: 'Güncelleme hazır, yeniden başlat', run: () => desktop()?.installUpdate?.()}
       this.bump()

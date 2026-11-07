@@ -319,32 +319,46 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   )
 }
 
-// Seste iken başka kanala geçince oda küçük pencerede sürer: ortak video, yoksa ekran paylaşımı, yoksa konuşanlar.
+// Küçük pencerede gösterilecek görüntü: ortak video, yoksa arkadaşın ekranı, yoksa kamerası.
+export function pipMedia(s: Session, call: Call): 'tv' | Tile | null {
+  if (tvCurrent(s.tv)) return 'tv'
+  const room = s.voice.room ?? ''
+  const known = new Set(s.view.rooms.map(r => r.id))
+  const here = (x: VoiceState) => (known.has(x.room ?? '') ? x.room ?? '' : '') === (known.has(room) ? room : '')
+  const others = [...s.peers].filter(([, p]) => p.voice.in && here(p.voice))
+  for (const kind of ['screen', 'cam'] as const)
+    for (const [peerId, p] of others) {
+      const st = call.remote.get(peerId)?.[kind]
+      if (p.voice[kind] && st) return {key: peerId + '-' + kind, uid: p.uid, name: p.name, stream: st, screen: kind === 'screen', talk: call.speaking.has(peerId), self: false, peerId}
+    }
+  return null
+}
+
+// Seste iken başka kanala geçince oda küçük pencerede sürer: ortak video, yoksa ekran, yoksa kamera, yoksa konuşanlar.
 // Ekran sesi de buradaki görüntüden çaldığı için kanal değiştirince kesilmez.
-export function MiniCall({s, call}: {s: Session; call: Call}) {
+// full: Windows'ta küçültülmüş uygulama penceresinin tamamı (sadece görüntü ve kısa çubuk).
+export function MiniCall({s, call, full}: {s: Session; call: Call; full?: boolean}) {
   const [small, setSmall] = useState(false)
   const room = app.roomOf(s, s.voice.room ?? '')
   const known = new Set(s.view.rooms.map(r => r.id))
   const here = (x: VoiceState) => (known.has(x.room ?? '') ? x.room ?? '' : '') === room.id
   const others = [...s.peers].filter(([, p]) => p.voice.in && here(p.voice))
-  const screens: Tile[] = []
-  for (const [peerId, p] of others) {
-    const r = call.remote.get(peerId)
-    if (p.voice.screen && r?.screen) screens.push({key: peerId + '-screen', uid: p.uid, name: p.name, stream: r.screen, screen: true, talk: false, self: false, peerId})
-  }
+  const media = pipMedia(s, call)
   const people = [{uid: app.me.uid, name: app.me.name, talk: call.speaking.has('me')}, ...others.map(([id, p]) => ({uid: p.uid, name: p.name, talk: call.speaking.has(id)}))]
-  const back = () => { app.select(s.code); app.go({kind: 'voice'}) }
+  const back = () => { if (full) { desktop()?.exitPip?.(); return } app.select(s.code); app.go({kind: 'voice'}) }
   const v = s.voice
   return (
-    <div className={'pipcall' + (small ? ' small' : '')} role="region" aria-label="Ses odası küçük pencere">
-      {!small && (tvCurrent(s.tv) ? <TvPlayer s={s} />
-        : screens[0] ? <TileView t={screens[0]} big={false} onClick={back} />
+    <div className={'pipcall' + (small && !full ? ' small' : '') + (full ? ' full' : '')} role="region" aria-label="Ses odası küçük pencere">
+      {(full || !small) && (media === 'tv' ? <TvPlayer s={s} />
+        : media ? <TileView t={media} big={false} onClick={back} />
         : <div className="pippeople">{people.map(p => <span key={p.uid} title={p.name}><Avatar uid={p.uid} name={p.name} s={40} on={p.talk} /></span>)}</div>)}
       <div className="pipbar">
-        <button className="livetxt grow" onClick={back} title="Odaya dön"><b>{room.title}</b><span className="ell">{people.length} kişi{s.code !== app.active ? ' · ' + s.view.title : ''}</span></button>
+        <button className="livetxt grow" onClick={back} title={full ? "Telsiz'i büyüt" : 'Odaya dön'}><b>{room.title}</b><span className="ell">{people.length} kişi{s.code !== app.active ? ' · ' + s.view.title : ''}</span></button>
         <button className={'ico sm' + (v.muted ? ' off' : '')} aria-label="Mikrofon" onClick={() => call.toggleMute()}><Icon n={v.muted ? 'micOff' : 'mic'} s={17} /></button>
         <button className={'ico sm' + (v.deaf ? ' off' : '')} aria-label="Kulaklık" onClick={() => call.toggleDeaf()}><Icon n={v.deaf ? 'headOff' : 'head'} s={17} /></button>
-        <button className="ico sm" aria-label={small ? 'Büyüt' : 'Küçült'} title={small ? 'Büyüt' : 'Küçült'} onClick={() => setSmall(!small)}><Icon n="chev" s={16} /></button>
+        {full
+          ? <button className="ico sm" aria-label="Büyüt" title="Telsiz'i büyüt" onClick={back}><Icon n="full" s={16} /></button>
+          : <button className="ico sm" aria-label={small ? 'Büyüt' : 'Küçült'} title={small ? 'Büyüt' : 'Küçült'} onClick={() => setSmall(!small)}><Icon n="chev" s={16} /></button>}
         <button className="ico sm danger" aria-label="Sesten çık" title="Sesten çık" onClick={() => app.leaveVoice()}><Icon n="hang" s={17} /></button>
       </div>
     </div>

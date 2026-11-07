@@ -8,6 +8,7 @@ type TelsizPlugin = {
   fileClose(o: {handle: string}): Promise<void>
   appVersion?(): Promise<{version: string}>
   installUpdate?(o: {url: string}): Promise<void>
+  radioTitle?(o: {url: string}): Promise<{title?: string}>
 }
 export type DesktopBridge = {
   onHotkey(cb: (k: 'mute' | 'deaf' | 'clip') => void): void
@@ -23,6 +24,10 @@ export type DesktopBridge = {
   setOverlay?(people: {name: string; talk: boolean; muted: boolean}[] | null): void
   setAdblock?(on: boolean): Promise<boolean>
   adblockOn?(): Promise<boolean>
+  setPipAvail?(on: boolean): void
+  exitPip?(): void
+  onPipMode?(cb: (on: boolean) => void): void
+  radioTitle?(url: string): Promise<string | null>
 }
 declare global {
   interface Window {

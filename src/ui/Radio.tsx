@@ -24,6 +24,7 @@ export function RadioPanel({s, room}: {s: Session; room: VRoom}) {
         {now ? <>
           <span className={'live' + (inRoom && radio.playing ? ' on' : '')}><i />{inRoom ? radio.playing ? 'ÇALIYOR' : failed ? 'AÇILAMADI' : 'BAĞLANIYOR' : 'ODADA ÇALAN'}</span>
           <h2>{now.title}</h2>
+          {inRoom && radio.title && <p className="radiosong" title={radio.title}><Icon n="sfx" s={16} /><span className="ell">{radio.title}</span></p>}
           <p className="dim">{room.tunedBy ? `${room.tunedBy} seçti. ` : ''}Herkes aynı yayını kendi cihazında dinliyor.</p>
           {failed && <p className="warn small">Bu yayın şu an açılmıyor. Listeden başka bir istasyon seç.</p>}
           {inRoom && !radio.playing && !failed && <button className="btn" onClick={() => radio.retry()}><Icon n="play" s={16} /> Çal</button>}

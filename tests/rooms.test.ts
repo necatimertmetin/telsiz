@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest'
 import {can, canAccept, canKick, materialize, validEvent, validStreamUrl} from '../src/lib/history'
-import {playable} from '../src/lib/radio'
+import {cleanTitle, playable} from '../src/lib/radio'
 import {isTeamCommand, makeTeams} from '../src/lib/bot'
 import {sameRoom} from '../src/lib/call'
 import type {Ev} from '../src/lib/types'
@@ -85,6 +85,13 @@ describe('radyo', () => {
     expect(validStreamUrl('http://a.b/s.mp3')).toBe(false)
     expect(validStreamUrl('javascript:alert(1)')).toBe(false)
     expect(validStreamUrl('https://a.b/"onerror')).toBe(false)
+  })
+  it('çalan şarkı adı temizlenir', () => {
+    expect(cleanTitle('GÖKÇE - HER ÞEY BÝTMEDÝ')).toBe('GÖKÇE - HER ŞEY BİTMEDİ')
+    expect(cleanTitle('  İntizar  -   Yağmurlar ')).toBe('İntizar - Yağmurlar')
+    expect(cleanTitle(' - ')).toBeNull()
+    expect(cleanTitle('')).toBeNull()
+    expect(cleanTitle(null)).toBeNull()
   })
   it('m3u8 ve pls listeye girmez', () => {
     expect(playable({url_resolved: 'https://a.b/live.m3u8'})).toBeNull()

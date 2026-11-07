@@ -14,4 +14,8 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   setOverlay: people => ipcRenderer.send('overlay', people),
   setAdblock: on => ipcRenderer.invoke('adblock', on),
   adblockOn: () => ipcRenderer.invoke('adblock-on'),
+  radioTitle: url => ipcRenderer.invoke('radio-title', url),
+  setPipAvail: on => ipcRenderer.send('pip-avail', on),
+  exitPip: () => ipcRenderer.send('pip-exit'),
+  onPipMode: cb => ipcRenderer.on('pip-mode', (_e, on) => cb(on)),
 })

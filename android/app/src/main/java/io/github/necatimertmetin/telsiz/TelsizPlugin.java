@@ -59,6 +59,56 @@ public class TelsizPlugin extends Plugin {
         }
     }
 
+    // Radyoda çalan şarkı: yayının içine gömülü "StreamTitle" okunur (tarayıcı bunu engeller).
+    // En fazla 400 KB ve 10 sn okunur, sonra bağlantı kapanır.
+    @PluginMethod
+    public void radioTitle(PluginCall call) {
+        String u = call.getString("url");
+        if (u == null || !u.startsWith("https://")) { call.resolve(new JSObject()); return; }
+        new Thread(() -> {
+            JSObject r = new JSObject();
+            java.net.HttpURLConnection c = null;
+            try {
+                c = (java.net.HttpURLConnection) new URL(u).openConnection();
+                c.setRequestProperty("Icy-MetaData", "1");
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(8000);
+                InputStream in = c.getInputStream();
+                byte[] buf = new byte[400000];
+                int n = 0;
+                long end = System.currentTimeMillis() + 10000;
+                byte[] key = "StreamTitle='".getBytes("US-ASCII");
+                int start = -1, scanned = 0;
+                while (n < buf.length && System.currentTimeMillis() < end) {
+                    int k = in.read(buf, n, Math.min(16384, buf.length - n));
+                    if (k < 0) break;
+                    n += k;
+                    if (start < 0) {
+                        for (int i = Math.max(0, scanned - key.length); i + key.length <= n && start < 0; i++) {
+                            boolean hit = true;
+                            for (int j = 0; j < key.length; j++) if (buf[i + j] != key[j]) { hit = false; break; }
+                            if (hit) start = i + key.length;
+                        }
+                        scanned = n;
+                    }
+                    if (start < 0) continue;
+                    int e = -1;
+                    for (int i = start; i + 1 < n; i++) if (buf[i] == '\'' && buf[i + 1] == ';') { e = i; break; }
+                    if (e < 0) continue;
+                    byte[] t = java.util.Arrays.copyOfRange(buf, start, e);
+                    String s = new String(t, "UTF-8");
+                    if (s.indexOf((char) 0xFFFD) >= 0) s = new String(t, "windows-1254");
+                    r.put("title", s.length() > 200 ? s.substring(0, 200) : s);
+                    break;
+                }
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            call.resolve(r);
+        }).start();
+    }
+
     @PluginMethod
     public void appVersion(PluginCall call) {
         try {
