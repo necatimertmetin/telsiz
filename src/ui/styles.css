@@ -536,3 +536,34 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .fq-sidehead{height:46px;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--line);flex:none}
 @media (max-width:1180px){.fq{grid-template-columns:240px minmax(0,1fr)}.fq-side{display:none}.fq-brand{width:auto}.fq-brand span{display:none}}
 @media (prefers-reduced-motion:reduce){.fq-scale em{transition:none}}
+/* Frekans telefon: tek sütun, bölümler alt sekmelerde */
+.fq.phone{grid-template-columns:minmax(0,1fr);grid-template-rows:48px minmax(0,1fr) auto}
+.fq.phone>.fq-dial,.fq.phone>.fq-main,.fq.phone>.fq-side,.fq.phone>.fq-ben{grid-row:2;grid-column:1;display:none;border:0}
+.fq.phone[data-tab=sahne]>.fq-main,.fq.phone[data-tab=kadran]>.fq-dial,.fq.phone[data-tab=kisiler]>.fq-side,.fq.phone[data-tab=ben]>.fq-ben{display:flex}
+.fq.phone .fq-dial>.fq-me{display:none}
+.fq.phone .fq-top{gap:8px;padding-left:8px}
+.fq.phone .fq-brand,.fq.phone .fq-invite,.fq.phone .fq-stack{display:none}
+.fq.phone .fq-online{padding:4px 6px}
+.fq.phone .fq-groups button{padding:5px 10px;max-width:150px}
+.fq.phone .fq-main{padding:8px 8px 0;gap:8px}
+.fq.phone .fq-head{min-height:36px;gap:8px;flex-wrap:wrap}
+.fq.phone .fq-head h1{font-size:22px}
+.fq.phone .fq-frame{border-radius:10px 10px 0 0;border-bottom:0}
+.fq.phone .fq-ptt{padding:7px 14px;font-size:14px}
+.fq.phone .composer{margin-bottom:10px}
+.fq.phone .controls{padding-bottom:10px}
+.fq.phone .fq-st{padding-top:10px;padding-bottom:10px}
+.fq-ben{flex-direction:column;gap:14px;padding:16px;overflow-y:auto;background:var(--bg2)}
+.fq-benme .fq-me{border:1px solid var(--line);border-radius:10px;padding:10px}
+.fq-benme .ico.sm{width:44px;height:44px}
+.fq-benptt .fq-ptt{width:100%;padding:16px;font-size:18px}
+.fq-benlist{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.fq-benlist button{display:flex;align-items:center;gap:12px;padding:14px 16px;text-align:left;font-weight:600}
+.fq-benlist button+button{border-top:1px solid var(--line)}
+.fq-benlist button:hover{background:var(--bg3)}
+.fq-tabs{grid-row:3;grid-column:1/-1;display:flex;background:var(--bg2);border-top:1px solid var(--line);padding-bottom:var(--safe-bottom)}
+.fq-tabs button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 8px;font-family:var(--cond);font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);border-top:2px solid transparent;margin-top:-1px}
+.fq-tabs button.on{color:var(--acc);border-top-color:var(--acc)}
+.fq-tabic{position:relative;display:inline-flex}
+.fq-tabic .fq-led{position:absolute;top:-2px;right:-6px}
+.fq-tabic .fq-n{position:absolute;top:-6px;left:12px}

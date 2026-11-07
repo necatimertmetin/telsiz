@@ -41,7 +41,6 @@ Hepsi `gelistirme` dalında birikir. Liste bitip tüm testler geçince `main`'e 
 
 - [ ] Gruptan atma
 - [ ] Frekans arayüzü (Discord'a benzemeyen yeni görünüm). Tasarım: https://claude.ai/artifact/3mSSnkcEHCec1Q2cic5wo1 . Önce kullanılabilirlik düzeltmeleri.
-- [ ] Arkadaş ekleme: gruptan bağımsız birebir sohbet ve arama
 
 ## Mert gerekli
 

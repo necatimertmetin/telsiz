@@ -210,7 +210,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <div className="days sizes" role="group" aria-label="Arayüz">
           {([['frekans', 'Frekans'], ['klasik', 'Klasik']] as const).map(([v, n]) => <button key={v} className={p.ui === v ? 'on' : ''} aria-pressed={p.ui === v} onClick={() => set('ui', v)}>{n}</button>)}
         </div>
-        <p className="dim small">Frekans yeni görünüm, şimdilik geniş ekranda. Telefonda ve dar pencerede klasik görünür.</p>
+        <p className="dim small">Frekans yeni görünüm. Telefonda ve dar pencerede bölümler alt sekmelerde.</p>
         <h4>Tema</h4>
         <div className="themes" role="group" aria-label="Tema">
           {THEMES.map(t => (

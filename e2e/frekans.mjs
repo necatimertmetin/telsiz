@@ -1,4 +1,4 @@
-// Frekans arayüzü (masaüstü): ayardan açılır, kadran ve frekanslar, sese giriş, yazı kanalında "Hâlâ yayındasın", dar pencerede klasik.
+// Frekans arayüzü (masaüstü): ayardan açılır, kadran ve frekanslar, sese giriş, yazı kanalında "Hâlâ yayındasın", telefonda alt sekmeler.
 import {chromium} from 'playwright-core'
 
 const URL = process.env.URL ?? 'http://localhost:4173/'
@@ -62,8 +62,32 @@ check(true, 'Sahneye dön sese götürdü')
 
 await mert.setViewportSize({width: 960, height: 700})
 check(await mert.locator('.fq').isVisible() && await noScroll(mert), '960 genişlikte Frekans, kaydırma yok')
-await mert.setViewportSize({width: 800, height: 700})
-await mert.locator('.shell').waitFor(T)
-check(await mert.locator('.fq').count() === 0, '800 genişlikte klasik')
+// Telefon: alt sekmeler
+await mert.setViewportSize({width: 375, height: 760})
+await mert.locator('.fq.phone').waitFor(T)
+check(await mert.locator('.shell').count() === 0, '375 genişlikte Frekans telefon')
+const tabs = mert.getByRole('navigation', {name: 'Bölümler'})
+check(await tabs.getByRole('button').count() === 4, 'dört alt sekme')
+check(await mert.getByText('● Yayındasın').isVisible() && await noScroll(mert), 'Sahne açık, kaydırma yok')
+await mert.screenshot({path: 'e2e/out/frekans-tel-sahne.png'})
+await tabs.getByRole('button', {name: /Kadran/}).click()
+check(await mert.locator('.fq-screen').isVisible() && !(await mert.locator('.fq-main').isVisible()), 'Kadran sekmesi')
+await mert.screenshot({path: 'e2e/out/frekans-tel-kadran.png'})
+await mert.locator('.fq-st.txt', {hasText: 'genel'}).click()
+await mert.locator('.composer textarea').waitFor(T)
+check(await mert.locator('.fq-main').isVisible(), 'kanala dokununca Sahne')
+await tabs.getByRole('button', {name: /Kişiler/}).click()
+check(await mert.locator('.fq-side .member', {hasText: 'Ali'}).isVisible(), 'Kişiler sekmesinde Ali')
+await mert.screenshot({path: 'e2e/out/frekans-tel-kisiler.png'})
+await tabs.getByRole('button', {name: /Ben/}).click()
+check(await mert.locator('.fq-ben .fq-mest').innerText().then(x => /yayında/.test(x)), 'Ben sekmesinde yayında')
+await mert.screenshot({path: 'e2e/out/frekans-tel-ben.png'})
+await mert.locator('.fq-ben').getByRole('button', {name: 'Ayarlar'}).click()
+await mert.getByRole('tab', {name: 'Görünüm'}).waitFor(T)
+check(true, 'Ben > Ayarlar açıldı')
+await mert.keyboard.press('Escape')
+await mert.locator('.fq-ben .fq-mest').click()
+await mert.getByText('● Yayındasın').waitFor(T)
+check(true, 'Ben > adına dokununca sahneye döndü')
 console.log(process.exitCode ? 'HATA' : 'TAMAM')
 await browser.close()

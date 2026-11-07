@@ -8,8 +8,9 @@ import {Icon} from './Icon'
 import {MiniCall, VoiceStage} from './Voice'
 import {csScore} from '../lib/cs'
 
-// Frekans arayüzü (masaüstü): üstte gruplar ve sinyaldekiler, solda kadran (frekanslar ve kanallar),
+// Frekans arayüzü: üstte gruplar ve sinyaldekiler, solda kadran (frekanslar ve kanallar),
 // ortada sahne, sağda kişiler. Sohbet, ses sahnesi, radyo ve ayarlar klasik arayüzle aynı bileşenler.
+// Dar ekranda (telefon) aynı parçalar alt sekmelere bölünür: Sahne / Kadran / Kişiler / Ben.
 
 // Frekans numarası oda sırasından gelir: ses odaları 90-99.6, yazı kanalları 100.5-107.5.
 export const voiceFreq = (i: number) => (90 + (i % 7) * 1.6).toFixed(1)
@@ -135,8 +136,27 @@ function Ptt() {
   return <button className="fq-ptt" onPointerDown={hold(true)} onPointerUp={hold(false)} onPointerLeave={hold(false)} onPointerCancel={hold(false)}>Bas konuş · {app.prefs.pttLabel}</button>
 }
 
-export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalKind) => void; children: ReactNode}) {
+type Tab = 'sahne' | 'kadran' | 'kisiler' | 'ben'
+
+function Ben({onModal, onStage}: {onModal: (m: ModalKind) => void; onStage: () => void}) {
+  const live = app.liveSession()
+  return (
+    <section className="fq-ben" aria-label="Ben">
+      <div className="fq-benme" onClick={e => { if ((e.target as HTMLElement).closest('.fq-mest')) onStage() }}><Me /></div>
+      {live && <div className="fq-benptt"><Ptt /></div>}
+      <div className="fq-benlist">
+        <button onClick={() => onModal('invite')}><Icon n="userPlus" s={18} /> Davet et</button>
+        <button onClick={() => onModal('add')}><Icon n="plus" s={18} /> Grup ekle</button>
+        <button onClick={() => onModal('settings')}><Icon n="gear" s={18} /> Ayarlar</button>
+      </div>
+    </section>
+  )
+}
+
+export function Frekans({s, onModal, narrow = false, children}: {s: Session; onModal: (m: ModalKind) => void; narrow?: boolean; children: ReactNode}) {
   const [searching, setSearching] = useState(false)
+  const [tab, setTab] = useState<Tab>('sahne')
+  const stage = () => setTab('sahne')
   const route = app.route
   const live = app.liveSession()
   const liveCall = app.liveCall()
@@ -161,8 +181,11 @@ export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalK
   const liveIdx = live && liveRoom ? [{id: ''}, ...live.view.rooms].findIndex(r => r.id === liveRoom.id) : 0
   const toggle = (k: 'hideMembers') => { app.prefs[k] = !app.prefs[k]; app.savePrefs() }
 
+  const groupUnread = app.unreadGroup(s)
+  const TABS: [Tab, string, string][] = [['sahne', 'Sahne', joined || live ? 'wave' : 'hash'], ['kadran', 'Kadran', 'radio'], ['kisiler', 'Kişiler', 'users'], ['ben', 'Ben', live?.voice.muted ? 'micOff' : 'mic']]
+
   return (
-    <div className={'fq' + (app.prefs.hideMembers ? ' nomembers' : '')} data-ui="frekans">
+    <div className={'fq' + (narrow ? ' phone' : app.prefs.hideMembers ? ' nomembers' : '')} data-ui="frekans" data-tab={narrow ? tab : undefined}>
       <header className="fq-top">
         <div className="fq-brand">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4.5 10.5a8 8 0 0 1 15 0" /><path d="M8 11a4 4 0 0 1 8 0" /><circle cx="12" cy="12" r="1.3" fill="currentColor" /><path d="M12 13.5V21" /></svg>
@@ -182,7 +205,7 @@ export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalK
           <button className="fq-add" aria-label="Grup ekle" title="Grup ekle" onClick={() => onModal('add')}><Icon n="plus" s={16} /></button>
         </nav>
         <div className="grow" />
-        <button className="fq-online" title={online.map(u => u.name).join(', ')} aria-pressed={!app.prefs.hideMembers} aria-label={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} onClick={() => toggle('hideMembers')}>
+        <button className="fq-online" title={online.map(u => u.name).join(', ')} aria-pressed={narrow ? undefined : !app.prefs.hideMembers} aria-label={narrow ? 'Kişiler' : app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} onClick={() => narrow ? setTab('kisiler') : toggle('hideMembers')}>
           <span className="fq-lblin">{s.settling ? 'Aranıyor' : `Sinyalde ${online.length}`}</span>
           <span className="fq-stack">{online.slice(0, 6).map(u => <Avatar key={u.key} uid={u.uid} name={u.name} s={26} />)}</span>
         </button>
@@ -190,7 +213,7 @@ export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalK
         <button className="ico sm fq-gear" aria-label="Ayarlar" title="Ayarlar" onClick={() => onModal('settings')}><Icon n="gear" s={18} /></button>
       </header>
 
-      <aside className="fq-dial">
+      <aside className="fq-dial" onClick={e => { if (narrow && (e.target as HTMLElement).closest('.fq-st, .fq-mest')) stage() }}>
         <div className="fq-dialtop"><Dial f={f} kind={kind} name={name} /></div>
         <div className="scroll">
           <div className="fq-lbl">Ses frekansları{s.settling && <span className="seeking"> · bağlanıyor</span>} {can(s.view, app.me.uid, 'rooms') && <button className="ico sm" aria-label="Oda kur" title="Oda kur" onClick={() => onModal('room')}><Icon n="plus" s={14} /></button>}</div>
@@ -232,8 +255,22 @@ export function Frekans({s, onModal, children}: {s: Session; onModal: (m: ModalK
 
       <aside className="fq-side">
         <div className="fq-sidehead"><span className="fq-lblin">Sinyaldekiler</span><span className="dim small">· {s.view.title}</span></div>
-        <div className="scroll"><Members s={s} /></div>
+        <div className="scroll"><Members s={s} onOpen={narrow ? stage : undefined} /></div>
       </aside>
+      {narrow && tab === 'ben' && <Ben onModal={onModal} onStage={stage} />}
+      {narrow && (
+        <nav className="fq-tabs" aria-label="Bölümler">
+          {TABS.map(([k, label, ic]) => (
+            <button key={k} className={tab === k ? 'on' : ''} aria-current={tab === k || undefined} onClick={() => setTab(k)}>
+              <span className="fq-tabic"><Icon n={ic as never} s={20} />
+                {k === 'sahne' && live && <span className="fq-led" aria-label="yayında" />}
+                {k === 'kadran' && groupUnread > 0 && <span className="fq-n">{groupUnread > 99 ? '99+' : groupUnread}</span>}
+              </span>
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
       {children}
     </div>
   )

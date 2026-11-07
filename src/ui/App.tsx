@@ -435,7 +435,7 @@ function tellPip(on: boolean) {
   desktop()?.setPipAvail?.(on)
 }
 
-// Frekans şimdilik geniş ekranda; dar pencerede ve telefonda klasik görünüm kalır.
+// Geniş ekran mı? Klasik görünümde yan paneller, Frekans'ta alt sekmeler buna göre.
 const WIDE = '(min-width: 900px)'
 function useWide() {
   const [w, setW] = useState(() => matchMedia(WIDE).matches)
@@ -506,7 +506,7 @@ export function App() {
       {app.toast && <div className="toast" role="status">{app.toast}</div>}
   </>
 
-  if (app.prefs.ui === 'frekans' && wide) return <Frekans s={s} onModal={setModal}>{overlays}</Frekans>
+  if (app.prefs.ui === 'frekans') return <Frekans s={s} onModal={setModal} narrow={!wide}>{overlays}</Frekans>
 
   return (
     <div className={'shell' + (drawer ? ' drawer' : '') + (app.prefs.hideSide ? ' noside' : '') + (app.prefs.hideMembers ? ' nomembers' : '')}>
