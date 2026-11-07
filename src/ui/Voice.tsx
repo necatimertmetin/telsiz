@@ -9,6 +9,7 @@ import {Avatar, PUBLIC_URL} from './App'
 import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {TvPlayer, TvQueue} from './Watch'
+import {tvCurrent} from '../lib/tv'
 import {RadioPanel} from './Radio'
 import {can, MAIN_ROOM, roomChat} from '../lib/history'
 import type {VoiceState} from '../lib/types'
@@ -314,6 +315,38 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
         {tab === 'chat' ? <Chat key={s.code + roomChat(room.id)} s={s} ch={roomChat(room.id)} /> : <TvQueue s={s} />}
       </aside>
     )}
+    </div>
+  )
+}
+
+// Seste iken başka kanala geçince oda küçük pencerede sürer: ortak video, yoksa ekran paylaşımı, yoksa konuşanlar.
+// Ekran sesi de buradaki görüntüden çaldığı için kanal değiştirince kesilmez.
+export function MiniCall({s, call}: {s: Session; call: Call}) {
+  const [small, setSmall] = useState(false)
+  const room = app.roomOf(s, s.voice.room ?? '')
+  const known = new Set(s.view.rooms.map(r => r.id))
+  const here = (x: VoiceState) => (known.has(x.room ?? '') ? x.room ?? '' : '') === room.id
+  const others = [...s.peers].filter(([, p]) => p.voice.in && here(p.voice))
+  const screens: Tile[] = []
+  for (const [peerId, p] of others) {
+    const r = call.remote.get(peerId)
+    if (p.voice.screen && r?.screen) screens.push({key: peerId + '-screen', uid: p.uid, name: p.name, stream: r.screen, screen: true, talk: false, self: false, peerId})
+  }
+  const people = [{uid: app.me.uid, name: app.me.name, talk: call.speaking.has('me')}, ...others.map(([id, p]) => ({uid: p.uid, name: p.name, talk: call.speaking.has(id)}))]
+  const back = () => { app.select(s.code); app.go({kind: 'voice'}) }
+  const v = s.voice
+  return (
+    <div className={'pipcall' + (small ? ' small' : '')} role="region" aria-label="Ses odası küçük pencere">
+      {!small && (tvCurrent(s.tv) ? <TvPlayer s={s} />
+        : screens[0] ? <TileView t={screens[0]} big={false} onClick={back} />
+        : <div className="pippeople">{people.map(p => <span key={p.uid} title={p.name}><Avatar uid={p.uid} name={p.name} s={40} on={p.talk} /></span>)}</div>)}
+      <div className="pipbar">
+        <button className="livetxt grow" onClick={back} title="Odaya dön"><b>{room.title}</b><span className="ell">{people.length} kişi{s.code !== app.active ? ' · ' + s.view.title : ''}</span></button>
+        <button className={'ico sm' + (v.muted ? ' off' : '')} aria-label="Mikrofon" onClick={() => call.toggleMute()}><Icon n={v.muted ? 'micOff' : 'mic'} s={17} /></button>
+        <button className={'ico sm' + (v.deaf ? ' off' : '')} aria-label="Kulaklık" onClick={() => call.toggleDeaf()}><Icon n={v.deaf ? 'headOff' : 'head'} s={17} /></button>
+        <button className="ico sm" aria-label={small ? 'Büyüt' : 'Küçült'} title={small ? 'Büyüt' : 'Küçült'} onClick={() => setSmall(!small)}><Icon n="chev" s={16} /></button>
+        <button className="ico sm danger" aria-label="Sesten çık" title="Sesten çık" onClick={() => app.leaveVoice()}><Icon n="hang" s={17} /></button>
+      </div>
     </div>
   )
 }

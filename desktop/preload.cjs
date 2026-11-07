@@ -12,4 +12,6 @@ contextBridge.exposeInMainWorld('telsizDesktop', {
   appVersion: () => ipcRenderer.invoke('app-version'),
   checkUpdate: () => ipcRenderer.invoke('check-update'),
   setOverlay: people => ipcRenderer.send('overlay', people),
+  setAdblock: on => ipcRenderer.invoke('adblock', on),
+  adblockOn: () => ipcRenderer.invoke('adblock-on'),
 })

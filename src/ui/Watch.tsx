@@ -42,10 +42,13 @@ export function TvPlayer({s}: {s: Session}) {
   const played = useRef(false)
   const last = useRef({t: 0, at: 0, st: ANY})
   const retry = useRef({k: '', n: 0})
+  const stuck = useRef({since: 0, t: -1, last: 0})
   const prev = useRef(ANY)
   const userPlay = useRef(false)
   const [time, setTime] = useState({cur: 0, dur: 0})
   const [mini, setMini] = useState(false)
+  const [cinema, setCinema] = useState(() => { try { return localStorage.getItem('telsiz.cinema') === '1' } catch { return false } })
+  const box = useRef<HTMLDivElement>(null)
   const [vol, setVol] = useState(readVol)
   const [seeking, setSeeking] = useState<number | null>(null)
   const item = tvCurrent(s.tv)
@@ -116,6 +119,16 @@ export function TvPlayer({s}: {s: Session}) {
           return
         }
       }
+      // Yükleniyor'da hiç ilerlemeden kaldıysa (veri gelmiyor) videoyu bu cihazda yeniden aç, en çok 20 sn'de bir.
+      // Sarmak yetmiyor: yarım kalan yüklemeyi her seferinde baştan başlatıyor.
+      const k = stuck.current
+      if (st !== BUFFERING || t !== k.t) { k.since = now; k.t = t }
+      else if (now - k.since > 10000 && now - k.last > 20000) {
+        k.last = now
+        k.since = now
+        loaded.current = ''
+        return sync()
+      }
       if (p.getPlaybackRate?.() !== 1) p.setPlaybackRate?.(1)
       if (tv.playing && st !== PLAYING && st !== BUFFERING && st !== ENDED) { mine(PLAYING); p.playVideo() }
       // Kişi YouTube'dan oynat'a bastıysa yüklenirken durdurma, oynayınca herkese yayılır.
@@ -136,7 +149,7 @@ export function TvPlayer({s}: {s: Session}) {
 
   const shown = seeking ?? time.cur
   return (
-    <div className={'tv' + (item ? '' : ' empty') + (mini ? ' mini' : '')}>
+    <div ref={box} className={'tv' + (item ? '' : ' empty') + (mini ? ' mini' : '') + (cinema && !mini ? ' cinema' : '')}>
       <div className="tvscreen"><div ref={host} /></div>
       {item && (
         <div className="tvbar">
@@ -154,6 +167,14 @@ export function TvPlayer({s}: {s: Session}) {
             player.current?.setVolume?.(v)
             try { localStorage.setItem('telsiz.tvvol', String(v)) } catch { /* yok */ }
           }} />
+          <button className="ico sm" aria-label={cinema ? 'Sinema modunu kapat' : 'Sinema modu'} aria-pressed={cinema} title={cinema ? 'Normal boy' : 'Sinema modu: videoyu büyüt (sadece sende)'} onClick={() => {
+            setCinema(!cinema); setMini(false)
+            try { localStorage.setItem('telsiz.cinema', cinema ? '0' : '1') } catch { /* yok */ }
+          }}><Icon n="wide" s={18} /></button>
+          <button className="ico sm" aria-label="Tam ekran" title="Tam ekran (sadece sende)" onClick={() => {
+            if (document.fullscreenElement) void document.exitFullscreen()
+            else void box.current?.requestFullscreen?.().catch(() => app.showToast('Tam ekran açılamadı'))
+          }}><Icon n="full" s={18} /></button>
           <button className="ico sm" aria-label={mini ? 'Büyüt' : 'Müzik modu'} title={mini ? 'Büyüt' : 'Müzik modu: görüntüyü küçült'} onClick={() => setMini(!mini)}><Icon n="sfx" s={18} /></button>
         </div>
       )}

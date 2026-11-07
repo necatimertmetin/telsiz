@@ -21,6 +21,8 @@ export type DesktopBridge = {
   appVersion?(): Promise<string>
   checkUpdate?(): Promise<boolean>
   setOverlay?(people: {name: string; talk: boolean; muted: boolean}[] | null): void
+  setAdblock?(on: boolean): Promise<boolean>
+  adblockOn?(): Promise<boolean>
 }
 declare global {
   interface Window {

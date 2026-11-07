@@ -50,6 +50,8 @@ a{color:var(--acc)}
 .badge.in{position:static;margin-left:auto}
 .side{width:244px;background:var(--bg2);display:flex;flex-direction:column;flex:none;min-height:0}
 .sidehead{height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 8px 0 14px;border-bottom:1px solid var(--line);flex:none}
+.invite{display:inline-flex;align-items:center;gap:6px;flex:none;padding:6px 10px;border-radius:8px;background:var(--bg4);color:var(--tx);font-weight:600;font-size:13px}
+.invite:hover{background:var(--acc);color:var(--acc-ink)}
 .scroll{flex:1;min-height:0;overflow-y:auto;padding-bottom:8px}
 .sect{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 4px;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);font-weight:600;min-height:40px}
 .pad{padding:0 8px 6px}
@@ -210,6 +212,9 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .tvscreen{height:min(52vh,56vw);position:relative}
 .tvscreen>*{position:absolute;inset:0;width:100%;height:100%}
 .tv.mini .tvscreen{height:112px;width:200px;margin:0 auto}
+.tv.cinema .tvscreen{height:min(78vh,56vw)}
+.tv:fullscreen{width:100%;height:100%}
+.tv:fullscreen .tvscreen{flex:1;height:auto;width:100%}
 .tvbar{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--bg2);min-width:0}
 .tvbar .ico{flex:none}
 .tvtime{font-size:13px;color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -386,3 +391,22 @@ input[type=color]{width:40px;height:38px;padding:2px;background:var(--bg);border
 .looks img{border-radius:50%;display:block}
 .looks.icons button{min-width:0;padding:4px}
 .sizes button{width:auto;padding:0 12px}
+.fonts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.fonts button{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:10px 12px;border-radius:10px;border:2px solid var(--line);text-align:left;min-width:0}
+.fonts button b{font-size:17px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fonts button small{font-size:12px}
+.fonts button[aria-pressed=true]{border-color:var(--acc)}
+
+/* Seste iken başka kanalda: odanın küçük penceresi */
+.pipcall{position:absolute;right:16px;bottom:84px;z-index:30;width:min(360px,calc(100% - 32px));background:var(--bg2);border:1px solid var(--line);border-radius:12px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.45);display:flex;flex-direction:column}
+.pipcall .tv .tvscreen{height:190px}
+.pipcall .tv.cinema .tvscreen{height:190px}
+.pipcall .tvbar{flex-wrap:wrap}
+.pipcall .tvbar input.tvvol[type=range],.pipcall .tvbar [aria-label="Sinema modu"],.pipcall .tvbar [aria-label="Sinema modunu kapat"],.pipcall .tvbar [aria-label="Müzik modu"],.pipcall .tvbar [aria-label="Büyüt"]{display:none}
+.pipcall .tile{height:190px;border-radius:0;cursor:pointer}
+.pippeople{display:flex;flex-wrap:wrap;gap:8px;padding:12px;justify-content:center}
+.pipbar{display:flex;align-items:center;gap:2px;padding:6px 8px;border-top:1px solid var(--line)}
+.pipcall.small .pipbar{border-top:0}
+.pipbar [aria-label="Küçült"] svg{transform:rotate(180deg)}
+.pipbar .livetxt{display:flex;flex-direction:column;align-items:flex-start;min-width:0;text-align:left;padding:2px 4px}
+.pipbar .livetxt span{font-size:12px;color:var(--dim);max-width:100%}

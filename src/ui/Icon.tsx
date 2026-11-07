@@ -45,7 +45,9 @@ const P: Record<string, string> = {
   shield: 'M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z',
   back: 'M15 6l-6 6 6 6',
   right: 'M9 6l6 6-6 6',
-  radio: 'M4 9h16v11H4zM7 9l10-5M15 13h2M15 16h2M11 14.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
+  wide: 'M2 7a1 1 0 0 1 1-1h18a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1zM6 10v4M18 10v4',
+  userPlus: 'M15 20v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M8.5 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M16 11h6',
+  radio:'M4 9h16v11H4zM7 9l10-5M15 13h2M15 16h2M11 14.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0z',
 }
 
 export function Icon({n, s = 20}: {n: string; s?: number}) {

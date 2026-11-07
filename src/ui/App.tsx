@@ -10,7 +10,7 @@ import {Chat} from './Chat'
 import {Icon} from './Icon'
 import {Modal} from './Modal'
 import {Settings} from './Settings'
-import {VoiceStage} from './Voice'
+import {MiniCall, VoiceStage} from './Voice'
 
 export const PUBLIC_URL = 'https://necatimertmetin.github.io/telsiz/'
 
@@ -226,7 +226,7 @@ function Side({s, onInvite, onSettings, onNavigate, onPrivate, onNewRoom}: {s: S
     <aside className="side">
       <header className="sidehead">
         <strong className="ell">{s.view.title}</strong>
-        <button className="ico" title="Davet et" aria-label="Davet et" onClick={onInvite}><Icon n="plus" s={18} /></button>
+        <button className="invite" title="Arkadaş davet et" aria-label="Davet et" onClick={onInvite}><Icon n="userPlus" s={16} /> Davet</button>
       </header>
       <div className="scroll">
         <div className="sect">Yazı kanalları <button className="ico sm" aria-label="Kanal ekle" title="Kanal ekle" onClick={() => setAdding(!adding)}><Icon n="plus" s={15} /></button></div>
@@ -404,10 +404,8 @@ export function App() {
         {alone && (
           <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
         )}
-        {live && app.route.kind === 'text' && (
-          <button className="backtocall" onClick={() => { app.select(live.code); app.go({kind: 'voice'}) }}><Icon n="wave" s={16} /> Görüşmeye dön</button>
-        )}
         {app.route.kind === 'text' ? <Chat key={s.code + app.route.ch} s={s} ch={app.route.ch} /> : <VoiceStage s={s} call={app.call!} />}
+        {live && app.liveCall() && (live !== s || app.route.kind === 'text') && <MiniCall s={live} call={app.liveCall()!} />}
       </main>
       <aside className="right"><div className="scroll"><Members s={s} /></div></aside>
 

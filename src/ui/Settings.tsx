@@ -1,5 +1,5 @@
 import {useEffect, useState, type ReactNode} from 'react'
-import {app, applyText, applyTheme, DOODLES, doodleOf, FONTS, SIZES, THEMES} from '../lib/app'
+import {app, applyText, applyTheme, DOODLES, doodleOf, fontLabel, FONTS, loadFontPreviews, SIZES, THEMES} from '../lib/app'
 import {BADGES, faceUrl, LOOKS} from '../lib/faces'
 import {desktop, saveBlob} from '../lib/native'
 import type {Session} from '../lib/session'
@@ -52,6 +52,9 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
   const [restore, setRestore] = useState('')
   const [upMsg, setUpMsg] = useState<string | null>(null)
   const [upBusy, setUpBusy] = useState(false)
+  const [ads, setAds] = useState<boolean | null>(null)
+  useEffect(() => { void desktop()?.adblockOn?.().then(setAds) }, [])
+  useEffect(() => { if (tab === 'gorunum') loadFontPreviews() }, [tab])
   const sched = s.view.sched ?? {days: [5, 6], time: '21:00', on: false}
   const setSched = (c: typeof sched) => s.emit({t: 'sched', ...c} as never)
   useEffect(() => {
@@ -187,11 +190,15 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <div className="days sizes" role="group" aria-label="Yazı boyutu">
           {SIZES.map(z => <button key={z.v} className={p.size === z.v ? 'on' : ''} aria-pressed={p.size === z.v} onClick={() => { set('size', z.v); applyText(p.font, z.v) }}>{z.name}</button>)}
         </div>
-        <label className="field">Yazı tipi
-          <select value={p.font} onChange={e => { set('font', e.target.value); applyText(e.target.value, p.size) }}>
-            {FONTS.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-          </select>
-        </label>
+        <h4>Yazı tipi</h4>
+        <div className="fonts" role="group" aria-label="Yazı tipi">
+          {FONTS.map(x => (
+            <button key={x.id} aria-pressed={p.font === x.id} onClick={() => { set('font', x.id); applyText(x.id, p.size) }}>
+              <b style={{fontFamily: `${x.css},system-ui,sans-serif`}}>{fontLabel(x.name)}</b>
+              {x.name !== fontLabel(x.name) && <small className="dim">{x.name.slice(fontLabel(x.name).length + 2, -1)}</small>}
+            </button>
+          ))}
+        </div>
         <h4>Sohbet arka planı</h4>
         <div className="doodles" role="group" aria-label="Sohbet arka planı">
           {DOODLES.map(d => (
@@ -226,6 +233,11 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
           </div>
           <p className="dim small">Windows uygulamasında oyundayken kısayolla mikrofon kapanır. iPhone'da Safari'de aç, Paylaş &gt; Ana Ekrana Ekle.</p>
         </>}
+
+        {desktop()?.setAdblock && ads !== null && <Switch title="YouTube reklamlarını engelle (deneysel)" hint="Sadece bu bilgisayarda. YouTube engeli fark edip videoyu durdurursa kapat." checked={ads} onChange={async v => {
+          setAds(v)
+          if (!await desktop()!.setAdblock!(v)) { setAds(!v); app.showToast('Reklam engeli açılamadı') } else app.showToast(v ? 'Reklam engeli açık, videoyu yeniden aç' : 'Reklam engeli kapandı')
+        }} />}
 
         {(desktop() || window.Capacitor) && <>
           <h4>Güncelleme</h4>

@@ -73,9 +73,19 @@ export const FONTS = [
 ] as const
 export const SIZES = [{v: .9, name: 'Küçük'}, {v: 1, name: 'Normal'}, {v: 1.1, name: 'Büyük'}, {v: 1.25, name: 'Çok büyük'}] as const
 
+// Ayarlarda her yazı tipinin adı kendi yazı tipiyle görünsün: sadece adın harfleri indirilir (birkaç KB).
+// Tam yazı tipi yüklüyse önizleme eklenmez, yoksa eksik harfli önizleme tam yazı tipinin önüne geçerdi.
+export const fontLabel = (name: string) => name.split(' (')[0]
+export function loadFontPreviews() {
+  for (const f of FONTS) {
+    if (!f.g || document.getElementById('font-' + f.id) || document.getElementById('fontprev-' + f.id)) continue
+    document.head.append(Object.assign(document.createElement('link'), {id: 'fontprev-' + f.id, rel: 'stylesheet', href: `https://fonts.googleapis.com/css2?family=${f.g}&text=${encodeURIComponent(fontLabel(f.name))}&display=swap`}))
+  }
+}
 export function applyText(font: string, size: number) {
   const f = FONTS.find(x => x.id === font) ?? FONTS[0]
   const r = document.documentElement
+  document.getElementById('fontprev-' + f.id)?.remove()
   if (f.g && !document.getElementById('font-' + f.id)) {
     const l = Object.assign(document.createElement('link'), {id: 'font-' + f.id, rel: 'stylesheet', href: `https://fonts.googleapis.com/css2?family=${f.g}&display=swap`})
     document.head.append(l)

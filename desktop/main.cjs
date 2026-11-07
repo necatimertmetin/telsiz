@@ -72,6 +72,31 @@ function setupUpdates() {
   checkUpdate = () => autoUpdater.checkForUpdates().then(() => true, () => false)
 }
 
+// Reklam engeli (deneysel, varsayılan kapalı): YouTube reklam isteklerini sadece bu uygulamada keser.
+// Liste bir kez indirilip saklanır, haftada bir yenilenir.
+const adFile = () => path.join(app.getPath('userData'), 'adblock.json')
+const adOnDisk = () => { try { return JSON.parse(fs.readFileSync(adFile(), 'utf8')).on === true } catch { return false } }
+let blocker = null
+async function setAdblock(on) {
+  try { fs.writeFileSync(adFile(), JSON.stringify({on: !!on})) } catch { /* yok */ }
+  try {
+    const ses = session.defaultSession
+    if (on) {
+      if (!blocker) {
+        const {ElectronBlocker} = require('@ghostery/adblocker-electron')
+        const cache = path.join(app.getPath('userData'), 'adblock-engine.bin')
+        try { if (Date.now() - fs.statSync(cache).mtimeMs > 7 * 864e5) fs.unlinkSync(cache) } catch { /* yok */ }
+        blocker = await ElectronBlocker.fromPrebuiltAdsOnly(fetch, {path: cache, read: fs.promises.readFile, write: fs.promises.writeFile})
+      }
+      if (!blocker.isBlockingEnabled(ses)) blocker.enableBlockingInSession(ses)
+    } else if (blocker?.isBlockingEnabled(ses)) blocker.disableBlockingInSession(ses)
+    return true
+  } catch (e) {
+    console.log('adblock-error', e.message)
+    return false
+  }
+}
+
 // İlk tepsiye inişte söyle: pencere kapandı sanıp bir daha açmaya çalışmasın.
 function trayHint() {
   const flag = path.join(app.getPath('userData'), 'tray-hint')
@@ -121,6 +146,9 @@ app.whenReady().then(() => {
   ipcMain.handle('pick', (_e, id, audio) => { picked = id; pickedAudio = !!audio })
   ipcMain.handle('app-version', () => app.getVersion())
   ipcMain.handle('check-update', () => checkUpdate())
+  ipcMain.handle('adblock', (_e, on) => setAdblock(!!on))
+  ipcMain.handle('adblock-on', () => adOnDisk())
+  if (adOnDisk()) void setAdblock(true)
   ipcMain.on('flash', () => { if (win && !win.isFocused()) win.flashFrame(true) })
   ipcMain.on('ptt', (_e, vk) => setPtt(vk))
   ipcMain.on('overlay', (_e, people) => setOverlay(people))

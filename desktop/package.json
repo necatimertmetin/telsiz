@@ -50,6 +50,7 @@
     "electron-builder": "^26.18.0"
   },
   "dependencies": {
+    "@ghostery/adblocker-electron": "2.20.3",
     "electron-updater": "^6.8.11",
     "koffi": "^3.3.7"
   }

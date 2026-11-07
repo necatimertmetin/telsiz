@@ -1,14 +1,32 @@
 // Birlikte izleme: gerçek YouTube oynatıcısı, üç tarayıcı. İnternet gerekir.
-// İlk video hafif seçildi: üç başsız tarayıcıda 4K video yüklenirken takılıp testi rastgele düşürüyordu.
+// YouTube arada reklam açar (sarınca da): reklam varsa Atla'ya basılır, reklam süresi beklemeye sayılmaz.
 import {chromium} from 'playwright-core'
 
 const URL = process.env.URL ?? 'http://localhost:4173/'
 const pass = m => console.log('OK  ', m)
 const fail = m => { console.log('FAIL', m); process.exitCode = 1 }
 const check = (c, m) => c ? pass(m) : fail(m)
+const pages = []
+let ads = 0
+const skipAds = async () => {
+  let any = false
+  for (const p of pages) {
+    const f = p.frameLocator('.tvscreen iframe')
+    if (!await f.locator('.html5-video-player.ad-showing').count().catch(() => 0)) continue
+    any = true
+    ads++
+    await f.locator('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern').first().click({timeout: 500}).catch(() => {})
+  }
+  return any
+}
 const waitFor = async (fn, ms, label) => {
-  const end = Date.now() + ms
-  while (Date.now() < end) { if (await fn().catch(() => false)) return true; await new Promise(r => setTimeout(r, 300)) }
+  let end = Date.now() + ms
+  while (Date.now() < end) {
+    if (await fn().catch(() => false)) return true
+    const t = Date.now()
+    if (await skipAds()) end += Date.now() - t + 300
+    await new Promise(r => setTimeout(r, 300))
+  }
   fail(label)
   return false
 }
@@ -18,6 +36,7 @@ const browser = await chromium.launch({channel: 'chrome', headless: true, args: 
 const open = async name => {
   const ctx = await browser.newContext({viewport: {width: 1400, height: 900}})
   const p = await ctx.newPage()
+  pages.push(p)
   p.on('pageerror', e => fail(`${name} sayfa hatası: ${e.message}`))
   await p.goto(URL)
   await p.getByLabel('Takma adın').fill(name)
@@ -44,11 +63,11 @@ await waitFor(() => b.getByText('oda selam').isVisible(), 10000, 'oda sohbeti g�
 check(await b.evaluate(() => !(window.telsiz.session.view.msgs.get('genel') ?? []).some(m => m.text === 'oda selam')), 'genel kanala düşmedi')
 
 // Sohbete link yazınca iki tarafta da açılır.
-await a.getByRole('textbox', {name: 'Mesaj'}).fill('https://www.youtube.com/watch?v=M7lc1UVf-VE')
+await a.getByRole('textbox', {name: 'Mesaj'}).fill('https://www.youtube.com/watch?v=aqz-KE-bpKQ')
 await a.keyboard.press('Enter')
 await waitFor(async () => (await tv(b)).n === 1, 10000, 'sıra karşıya gitmedi') && pass('link sıraya girdi, karşı tarafta göründü')
 await waitFor(async () => await state(a) === 1 && await state(b) === 1, 40000, 'video oynamadı') && pass('video iki tarafta da oynuyor')
-await waitFor(async () => (await tv(b)).title?.includes('YouTube Developers'), 10000, 'başlık gelmedi') && pass('başlık geldi')
+await waitFor(async () => (await tv(b)).title?.includes('Big Buck'), 10000, 'başlık gelmedi') && pass('başlık geldi')
 await wait(2500)
 const diff = Math.abs(await time(a) - await time(b))
 check(diff < 2, `iki taraf aynı yerde (fark ${diff.toFixed(2)} sn)`)
@@ -90,14 +109,15 @@ const late = Math.abs(await time(a) - await time(c))
 check(late < 2.5, `geç gelen aynı yerde (fark ${late.toFixed(2)} sn)`)
 
 // Sıra: listeye ekle, sonrakine geç, bitince kapan.
-await b.evaluate(() => window.telsiz.session.tvAddLink('https://youtu.be/aqz-KE-bpKQ', 'Ali'))
+await b.evaluate(() => window.telsiz.session.tvAddLink('https://youtu.be/M7lc1UVf-VE', 'Ali'))
 await waitFor(async () => (await tv(a)).n === 2, 8000, 'ikinci video sıraya girmedi') && pass('ikinci video sıraya girdi')
 await a.getByRole('button', {name: 'Sonraki'}).click()
-await waitFor(async () => (await tv(c)).idx === 1 && await c.evaluate(() => window.__tv.getVideoData().video_id === 'aqz-KE-bpKQ'), 15000, 'sonrakine geçmedi') && pass('sonraki video herkeste açıldı')
+await waitFor(async () => (await tv(c)).idx === 1 && await c.evaluate(() => window.__tv.getVideoData().video_id === 'M7lc1UVf-VE'), 15000, 'sonrakine geçmedi') && pass('sonraki video herkeste açıldı')
 await a.getByRole('tab', {name: /Liste/}).click()
 await a.getByRole('button', {name: /kaldır/}).first().waitFor({timeout: 5000})
 pass('liste sekmesi görünüyor')
 check(await a.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'yatay taşma yok')
 
 await browser.close()
+if (ads) console.log(`(reklam görüldü: ${ads} kez)`)
 console.log(process.exitCode ? 'BAŞARISIZ' : 'TAMAM')
