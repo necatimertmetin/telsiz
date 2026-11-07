@@ -52,6 +52,17 @@ export class Call {
   private tuner?: ReturnType<typeof setInterval>
   private known?: Set<string>
   private openUntil = 0
+  // Konuşma göstergesi: tek bir gürültü anı (klavye, nefes) halkayı yakmasın, ses en az 200 ms sürmeli.
+  // Yanınca heceler arasında sönmesin diye 400 ms yanık kalır. Sesin kendisini etkilemez.
+  private loudAt = new Map<string, number>()
+  private streak = new Map<string, number>()
+  private mark(id: string, loud: boolean, now: number) {
+    const n = loud ? (this.streak.get(id) ?? 0) + 1 : 0
+    this.streak.set(id, n)
+    if (n >= 2 || (loud && this.speaking.has(id))) this.loudAt.set(id, now)
+    if (now - (this.loudAt.get(id) ?? -1e9) < 400) this.speaking.add(id)
+    else { this.speaking.delete(id); this.loudAt.delete(id) }
+  }
   private wake?: WakeLockSentinel | null
   private relaying = new Map<string, {stream: MediaStream; to: string}>()
   private gapSince = new Map<string, number>()
@@ -131,6 +142,8 @@ export class Call {
     void this.ctx?.close()
     this.ctx = undefined
     this.speaking.clear()
+    this.loudAt.clear()
+    this.streak.clear()
     this.level = 0
     this.known = undefined
     this.s.voice = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
@@ -401,21 +414,16 @@ export class Call {
 
   private tick() {
     const before = [...this.speaking].join()
+    const now = Date.now()
     if (this.localAn && this.send) {
       this.level = Math.min(100, this.rms(this.localAn) * 400 * this.prefs().micGain)
-      const now = Date.now()
-      // Kapı: sessizlikte hiç paket gitmez, klavye ve oda sesi arkadaşına ulaşmaz.
       if (this.level >= this.prefs().gate) this.openUntil = now + 350
       const open = this.prefs().ptt ? this.pttDown : now < this.openUntil
       this.send.enabled = !this.s.voice.muted && open
-      if (this.send.enabled && this.level > 3) this.speaking.add('me'); else this.speaking.delete('me')
+      if (this.send.enabled) this.mark('me', this.level > Math.max(5, this.prefs().gate), now); else { this.speaking.delete('me'); this.loudAt.delete('me') }
     }
-    for (const [uid, r] of this.relayed) if (r.an) {
-      if (this.rms(r.an) > 0.012) this.speaking.add('r:' + uid); else this.speaking.delete('r:' + uid)
-    }
-    for (const [id, {an}] of this.meters) {
-      if (this.rms(an) > 0.012) this.speaking.add(id); else this.speaking.delete(id)
-    }
+    for (const [uid, r] of this.relayed) if (r.an) this.mark('r:' + uid, this.rms(r.an) > 0.012, now)
+    for (const [id, {an}] of this.meters) this.mark(id, this.rms(an) > 0.012, now)
     if ([...this.speaking].join() !== before) this.changed()
   }
 
