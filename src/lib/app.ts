@@ -130,6 +130,19 @@ class App {
   // Windows'ta küçültünce sadece görüntüyü gösteren küçük pencere.
   pipMode = false
   backupSaved = load<{v: boolean}>('backup2', {v: false}).v
+  // "Sonra" denince yedek uyarısı bir hafta gizlenir.
+  backupLater = load<{t: number}>('backupLater', {t: 0}).t
+  get backupNag() { return !this.backupSaved && Date.now() - this.backupLater > 7 * 864e5 }
+  laterBackup() { this.backupLater = Date.now(); save('backupLater', {t: this.backupLater}); this.bump() }
+  // Tarayıcının confirm() kutusu yerine uygulama içi onay.
+  askBox: {text: string; ok: string; done: (v: boolean) => void} | null = null
+  ask(text: string, ok = 'Sil') {
+    return new Promise<boolean>(r => {
+      this.askBox?.done(false)
+      this.askBox = {text, ok, done: v => { this.askBox = null; this.bump(); r(v) }}
+      this.bump()
+    })
+  }
   pins = load<Record<string, string>>('pins', {})
   keys: KeysJwk | null = load<{k: KeysJwk | null}>('keys', {k: null}).k
   identity!: Promise<Identity>

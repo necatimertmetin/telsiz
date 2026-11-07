@@ -164,7 +164,7 @@ function SfxMenu() {
   const [open, setOpen] = useState(false)
   return (
     <div className="cgroup solo">
-      <button className="cbtn" aria-label="Ses efektleri" title="Ses efektleri" onClick={() => setOpen(!open)}><Icon n="sfx" /></button>
+      <button className="cbtn" aria-label="Ses efektleri" title="Ses efektleri" data-l="Efekt" onClick={() => setOpen(!open)}><Icon n="sfx" /></button>
       {open && <div className="menuscrim" onClick={() => setOpen(false)} />}
       {open && (
         <div className="devmenu sfxgrid" role="menu" aria-label="Ses efektleri">
@@ -204,13 +204,15 @@ function ScreenMenu({call}: {call: Call}) {
 
 export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const [focus, setFocus] = useState<string | null>(null)
-  const [side, setSide] = useState(() => innerWidth > 1000)
+  // Oda sohbeti paneli: kişi açıp kapattıysa o; yoksa geniş ekranda sohbette mesaj ya da listede video varsa açık.
+  const [pick, setSide] = useState<boolean | null>(null)
   const room = app.shownRoom(s)
   const [tab, setTab] = useState<'chat' | 'list'>(room.kind === 'music' ? 'list' : 'chat')
   const [audioOpen, setAudioOpen] = useState(false)
   const v = s.voice
+  const side = pick ?? (innerWidth > 1000 && (room.kind === 'music' || s.tv.queue.length > 0 || !!s.view.msgs.get(roomChat(room.id))?.length))
   const chatOpen = v.in && side && tab === 'chat'
-  useEffect(() => { setTab(room.kind === 'music' ? 'list' : 'chat') }, [room.id, room.kind])
+  useEffect(() => { setTab(room.kind === 'music' ? 'list' : 'chat'); setSide(null) }, [room.id, room.kind])
   useEffect(() => {
     app.roomChatOpen = chatOpen
     app.markRead()
@@ -221,7 +223,7 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
   const roomOf = (x: VoiceState) => known.has(x.room ?? '') ? x.room ?? '' : ''
   const others = [...s.peers].filter(([, p]) => p.voice.in && roomOf(p.voice) === room.id)
   const mayDrop = !!room.id && can(s.view, app.me.uid, 'rooms')
-  const dropBtn = mayDrop && <button className="btn ghost danger" onClick={() => { if (confirm(`${room.title} odası silinsin mi? İçindekiler ${MAIN_ROOM}'na geçer.`)) { s.dropRoom(room.id); void app.enterRoom('') } }}><Icon n="trash" s={16} /> Odayı sil</button>
+  const dropBtn = mayDrop && <button className="btn ghost danger" onClick={() => void app.ask(`${room.title} odası silinsin mi? İçindekiler ${MAIN_ROOM}'na geçer.`, 'Odayı sil').then(ok => { if (ok) { s.dropRoom(room.id); void app.enterRoom('') } })}><Icon n="trash" s={16} /> Odayı sil</button>
 
   if (!v.in) return (
     <div className="prejoin">
@@ -281,30 +283,30 @@ export function VoiceStage({s, call}: {s: Session; call: Call}) {
       {!others.length && <p className="dim stagehint">Odada sadece sen varsın. <button className="linkbtn" disabled={!s.peers.size} onClick={() => { s.ring(); app.showToast('Herkese çağrı gitti') }}>Herkesi çağır</button></p>}
       <div className="controls">
         <div className="cgroup">
-          <button className={'cbtn' + (v.muted ? ' off' : '')} aria-label="Mikrofon" title="Mikrofon" onClick={() => call.toggleMute()}><Icon n={v.muted ? 'micOff' : 'mic'} /></button>
+          <button className={'cbtn' + (v.muted ? ' off' : '')} aria-label="Mikrofon" title="Mikrofon" data-l="Mikrofon" onClick={() => call.toggleMute()}><Icon n={v.muted ? 'micOff' : 'mic'} /></button>
           <button className="caret" aria-label="Mikrofon seç" aria-expanded={audioOpen} title="Ses ayarları" onClick={() => setAudioOpen(!audioOpen)}><Icon n="chev" s={14} /></button>
         </div>
         <div className="cgroup">
-          <button className={'cbtn' + (v.deaf ? ' off' : '')} aria-label="Kulaklık" title="Kulaklık" onClick={() => call.toggleDeaf()}><Icon n={v.deaf ? 'headOff' : 'head'} /></button>
+          <button className={'cbtn' + (v.deaf ? ' off' : '')} aria-label="Kulaklık" title="Kulaklık" data-l="Kulaklık" onClick={() => call.toggleDeaf()}><Icon n={v.deaf ? 'headOff' : 'head'} /></button>
           <button className="caret" aria-label="Ses çıkışı seç" aria-expanded={audioOpen} title="Ses ayarları" onClick={() => setAudioOpen(!audioOpen)}><Icon n="chev" s={14} /></button>
         </div>
         <div className="cgroup">
-          <button className={'cbtn' + (v.cam ? ' act' : '')} aria-label="Kamera" title="Kamera" onClick={() => void call.toggleCam().catch(() => app.showToast('Kamera açılamadı'))}><Icon n={v.cam ? 'video' : 'videoOff'} /></button>
+          <button className={'cbtn' + (v.cam ? ' act' : '')} aria-label="Kamera" title="Kamera" data-l="Kamera" onClick={() => void call.toggleCam().catch(() => app.showToast('Kamera açılamadı'))}><Icon n={v.cam ? 'video' : 'videoOff'} /></button>
           <CamMenu call={call} />
         </div>
         {v.cam && navigator.maxTouchPoints > 0 && <button className="cbtn" aria-label="Kamerayı çevir" onClick={() => void call.flipCam()}><Icon n="flip" /></button>}
         {canShareScreen() && (
           <div className="cgroup">
-            <button className={'cbtn' + (v.screen ? ' act' : '')} aria-label="Ekran paylaş" title="Ekran paylaş" onClick={() => void shareScreen()}><Icon n="screen" /></button>
+            <button className={'cbtn' + (v.screen ? ' act' : '')} aria-label="Ekran paylaş" title="Ekran paylaş" data-l="Ekran" onClick={() => void shareScreen()}><Icon n="screen" /></button>
             <ScreenMenu call={call} />
           </div>
         )}
-        <button className="cbtn" aria-label="Sese davet linki" title="Sese davet linkini kopyala" onClick={() => void navigator.clipboard.writeText(`${PUBLIC_URL}#/katil/${s.code}/ses`).then(() => app.showToast('Link kopyalandı, tıklayan direkt sese gelir')).catch(() => app.showToast('Kopyalanamadı'))}><Icon n="link" /></button>
-        <button className={'cbtn' + (side ? ' act' : '')} aria-label="Oda sohbeti" title="Oda sohbeti ve video listesi" onClick={() => setSide(!side)}><Icon n="chat" /></button>
+        <button className="cbtn" aria-label="Sese davet linki" title="Sese davet linkini kopyala" data-l="Link" onClick={() => void navigator.clipboard.writeText(`${PUBLIC_URL}#/katil/${s.code}/ses`).then(() => app.showToast('Link kopyalandı, tıklayan direkt sese gelir')).catch(() => app.showToast('Kopyalanamadı'))}><Icon n="link" /></button>
+        <button className={'cbtn' + (side ? ' act' : '')} aria-label="Oda sohbeti" title="Oda sohbeti ve video listesi" data-l="Sohbet" onClick={() => setSide(!side)}><Icon n="chat" /></button>
         <SfxMenu />
-        <button className={'cbtn' + (call.clip ? ' act' : '')} aria-label="Klip kaydı" title={call.clip ? 'Klip kaydı açık, kapat' : 'Klip kaydını aç'} onClick={() => call.toggleClip()}><Icon n="clipper" /></button>
+        <button className={'cbtn' + (call.clip ? ' act' : '')} aria-label="Klip kaydı" data-l="Klip" title={call.clip ? 'Klip kaydı açık, kapat' : 'Klip kaydını aç'} onClick={() => call.toggleClip()}><Icon n="clipper" /></button>
         {call.clip && <button className="cbtn wide" aria-label="Son anı kaydet" title="Son 30-60 saniyeyi sohbete gönder" onClick={() => void app.saveClip()}>Kaydet</button>}
-        <button className="cbtn leave" aria-label="Çık" title="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
+        <button className="cbtn leave" aria-label="Çık" title="Çık" data-l="Çık" onClick={() => app.leaveVoice()}><Icon n="hang" /></button>
         {audioOpen && <AudioPanel call={call} onClose={() => setAudioOpen(false)} />}
       </div>
     </div>

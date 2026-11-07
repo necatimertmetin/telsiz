@@ -167,7 +167,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
         <Switch title="Gruptaki herkese hatırlat" hint="Seçili günlerde bu saatte, uygulama açıkken" checked={sched.on} onChange={on => setSched({...sched, on})} />
         <h4>Gruptan ayrıl</h4>
         <p className="dim small">Bu cihazdaki geçmiş silinir. Tekrar girmek için davet linki gerekir.</p>
-        <div><button className="btn danger" onClick={() => { if (confirm(`"${s.view.title}" grubundan çıkılsın mı? Bu cihazdaki geçmiş silinir.`)) { onClose(); void app.leaveGroup(s.code) } }}>Gruptan çık</button></div>
+        <div><button className="btn danger" onClick={() => void app.ask(`"${s.view.title}" grubundan çıkılsın mı? Bu cihazdaki geçmiş silinir.`, 'Gruptan çık').then(ok => { if (ok) { onClose(); void app.leaveGroup(s.code) } })}>Gruptan çık</button></div>
       </>
       case 'uyeler': return <Roster s={s} onClose={onClose} />
       case 'ses': return <>

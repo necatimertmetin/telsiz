@@ -57,6 +57,7 @@ await waitFor(() => a.evaluate(() => window.telsiz.session.peers.size === 1), 60
 for (const p of [a, b]) await p.evaluate(() => { window.telsiz.go({kind: 'voice'}); return window.telsiz.joinVoice() })
 
 // Oda sohbeti: gruptaki metin kanallarına karışmaz.
+await a.getByRole('button', {name: 'Oda sohbeti'}).click()
 await a.getByRole('textbox', {name: 'Mesaj'}).fill('oda selam')
 await a.keyboard.press('Enter')
 await waitFor(() => b.getByText('oda selam').isVisible(), 10000, 'oda sohbeti görünmedi') && pass('oda sohbeti yanda görünüyor')

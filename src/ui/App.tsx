@@ -352,7 +352,12 @@ export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
   const offline = !navigator.onLine
   return (
     <>
-      {!app.backupSaved && <button className="backupbar" onClick={onSettings}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>}
+      {app.backupNag && (
+        <div className="backupbar">
+          <button className="grow" onClick={onSettings}>Yedek kodunu sakla, yoksa bu cihazı kaybedince gruplarına dönemezsin</button>
+          <button className="ico sm" aria-label="Sonra hatırlat" title="Bir hafta sonra hatırlat" onClick={() => app.laterBackup()}><Icon n="x" s={16} /></button>
+        </div>
+      )}
       {app.update && <button className="updatebar" onClick={() => app.update?.run()}><Icon n="down" s={16} /> {app.update.label}</button>}
       {offline && <div className="notice warn">İnternet bağlantın yok. Bağlanınca arkadaşların ve mesajlar kendiliğinden gelir.</div>}
       {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
@@ -447,6 +452,9 @@ function useWide() {
   return w
 }
 
+// Seste kaç kişi var (ben dahil): klasik telefonda üst çubukta görünür.
+const voiceCount = (s: Session) => [...s.peers.values()].filter(p => p.voice.in).length + (s.voice.in ? 1 : 0)
+
 export type ModalKind = 'add' | 'invite' | 'settings' | 'private' | 'room'
 
 export function App() {
@@ -504,6 +512,15 @@ export function App() {
         </div>
       )}
       {app.toast && <div className="toast" role="status">{app.toast}</div>}
+      {app.askBox && (
+        <Modal title="Emin misin?" onClose={() => app.askBox?.done(false)}>
+          <p>{app.askBox.text}</p>
+          <div className="row askrow">
+            <button className="btn" onClick={() => app.askBox?.done(false)}>Vazgeç</button>
+            <button className="btn danger" autoFocus onClick={() => app.askBox?.done(true)}>{app.askBox.ok}</button>
+          </div>
+        </Modal>
+      )}
   </>
 
   if (app.prefs.ui === 'frekans') return <Frekans s={s} onModal={setModal} narrow={!wide}>{overlays}</Frekans>
@@ -526,6 +543,9 @@ export function App() {
           {app.route.kind === 'text' && <button className="ico" title="Ara" aria-label="Ara" onClick={() => { setSearching(!searching); app.search = ''; app.bump() }}><Icon n={searching ? 'x' : 'search'} /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Sesli katıl" aria-label="Sesli katıl" onClick={() => void app.joinVoice()}><Icon n="wave" /></button>}
           {app.route.kind === 'text' && !s.voice.in && <button className="ico" title="Görüntülü katıl" aria-label="Görüntülü katıl" onClick={() => void app.joinVoice(true)}><Icon n="video" /></button>}
+          <button className="onlymobile mobpeople" aria-label={`Çevrimiçi ${people(s).online.length}, seste ${voiceCount(s)}`} onClick={() => setDrawer(true)}>
+            <Icon n="users" s={18} />{people(s).online.length}{voiceCount(s) > 0 && <span className="mobvoice"><Icon n="wave" s={14} />{voiceCount(s)}</span>}
+          </button>
           <button className="ico" title="Davet et" aria-label="Davet et" onClick={() => setModal('invite')}><Icon n="link" /></button>
           <button className="ico onlyxl" title={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-label={app.prefs.hideMembers ? 'Üyeleri göster' : 'Üyeleri gizle'} aria-pressed={!app.prefs.hideMembers} onClick={() => { app.prefs.hideMembers = !app.prefs.hideMembers; app.savePrefs() }}><Icon n="users" /></button>
         </header>

@@ -19,6 +19,9 @@ await b.getByLabel('Davet linki ya da kod').fill(`https://x/#/katil/${code}`)
 await b.getByRole('button', {name: 'Katıl'}).click()
 await a.waitForFunction(() => window.telsiz.session.peers.size === 1, null, {timeout: 60000})
 for (const p of [a, b]) await p.evaluate(() => { window.telsiz.go({kind: 'voice'}); return window.telsiz.joinVoice() })
+check(await a.locator('.roomside').count() === 0, 'boş oda sohbeti kapalı başlıyor')
+await b.getByRole('button', {name: 'Oda sohbeti'}).click()
+await a.getByRole('button', {name: 'Oda sohbeti'}).click()
 await a.getByRole('button', {name: 'Paneli kapat'}).click()
 
 const send = async text => {

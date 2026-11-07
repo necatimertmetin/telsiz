@@ -219,7 +219,7 @@ function Row({s, m, head, onReply}: {s: Session; m: Msg; head: boolean; onReply:
         <button className="ico sm" aria-label="Yanıtla" onClick={onReply}><Icon n="reply" s={16} /></button>
         <button className="ico sm" aria-label={m.pinned ? 'Sabiti kaldır' : 'Sabitle'} title={m.pinned ? 'Sabiti kaldır' : 'Sabitle'} onClick={() => s.emit({t: 'pin', target: m.id, on: !m.pinned} as never)}><Icon n="pin" s={16} /></button>
         {own && m.text && <button className="ico sm" aria-label="Düzenle" onClick={() => { setDraft(m.text); setEditing(true) }}><Icon n="edit" s={16} /></button>}
-        {own && <button className="ico sm" aria-label="Sil" onClick={() => { if (confirm('Bu mesaj herkesten silinsin mi?')) s.emit({t: 'del', target: m.id} as never) }}><Icon n="trash" s={16} /></button>}
+        {own && <button className="ico sm" aria-label="Sil" onClick={() => void app.ask('Bu mesaj herkesten silinsin mi?').then(ok => { if (ok) s.emit({t: 'del', target: m.id} as never) })}><Icon n="trash" s={16} /></button>}
       </div>
     </div>
   )
