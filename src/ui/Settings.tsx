@@ -285,7 +285,7 @@ export function Settings({s, onClose}: {s: Session; onClose: () => void}) {
 
         <details>
           <summary>Gelişmiş: bağlantı sorunu</summary>
-          <p className="dim small">Birine bağlanamıyorsan operatörün doğrudan bağlantıyı engelliyor olabilir. Ücretsiz bir TURN hesabının bilgilerini JSON olarak buraya yapıştır. Bilgi sadece bu cihazda kalır, grupta bir kişinin girmesi çoğu zaman yeter.</p>
+          <p className="dim small">Biriyle sürekli bağlanamıyorsan aranızdaki ağ doğrudan bağlantıya izin vermiyor demektir (mobil veri, yurt ya da iş ağı, bazı modemler). O zaman görüşmeyi bir ara sunucu (TURN) taşır. Ücretsiz TURN veren bir sitede (ör. Metered) hesap açıp verdiği bilgileri (JSON) buraya yapıştır. Grupta bir kişinin girmesi çoğu zaman yeter, bilgi sadece bu cihazda kalır. Önce uygulamayı kapatıp açmayı ve ağ değiştirmeyi dene.</p>
           <textarea rows={3} spellCheck={false} value={turn} placeholder='{"urls":"turn:...","username":"...","credential":"..."}' onChange={e => setTurn(e.target.value)} aria-label="TURN ayarı" />
           <button className="btn" onClick={() => { app.saveTurn(turn); location.reload() }}>Kaydet ve yeniden başlat</button>
         </details>

@@ -90,6 +90,10 @@ export class Session {
   view: View
   linkError = ''
   relayOk = true
+  // Seste benimle olup bağlantısı giden kişiler (uid -> ad, zaman). Geri gelince ya da 10 dk sonra silinir.
+  readonly lost = new Map<string, {name: string; at: number}>()
+  // Bulduk ama doğrudan bağlanamadık mı (çoğu zaman ağ engeli, TURN gerekir), yoksa başka bir hata mı.
+  get linkKind(): '' | 'nat' | 'other' { return !this.linkError ? '' : /after exchanging SDP|TURN/i.test(this.linkError) ? 'nat' : 'other' }
   voice: VoiceState = {in: false, muted: false, deaf: false, cam: false, screen: false, sAudio: false}
   // Kendi CS2 durumum: sadece sesteyken presence'a eklenir. Sık gelir, duyuru en çok 2 sn'de bir gider.
   cs: CsState | undefined
@@ -199,6 +203,9 @@ export class Session {
       this.hooks.changed()
     }
     r.onPeerLeave = (peerId: string) => {
+      const gone = this.peers.get(peerId)
+      if (gone && this.voice.in && gone.voice.in && !this.leaving && ![...this.peers].some(([id, p]) => id !== peerId && p.uid === gone.uid))
+        this.lost.set(gone.uid, {name: gone.name, at: Date.now()})
       this.peers.delete(peerId); this.typing.delete(peerId); this.stats.delete(peerId)
       this.authed.delete(peerId); this.waiting.delete(peerId)
       this.onPeerLeft?.(peerId)
@@ -434,6 +441,7 @@ export class Session {
     const room = typeof p.voice.room === 'string' && p.voice.room.length <= 32 ? p.voice.room : ''
     const next = {uid: p.uid, name: p.name.slice(0, 40), voice: withCs({...p.voice, room}), others}
     this.peers.set(peerId, next)
+    this.lost.delete(next.uid)
     // Komşunun kendi durumu değişince diğerlerine de duyurulur; sadece 'others' değişince
     // duyurulmaz, yoksa iki kişi birbirine sonsuza dek haber verir.
     const same = old && old.uid === next.uid && old.name === next.name && JSON.stringify(old.voice) === JSON.stringify(next.voice)
@@ -675,6 +683,7 @@ export class Session {
       this.stats.set(peerId, s)
     }
     const now = Date.now()
+    for (const [k, v] of this.lost) if (now - v.at > 10 * 60_000) this.lost.delete(k)
     for (const [k, v] of this.typing) if (v.until < now) this.typing.delete(k)
     this.hooks.changed()
   }

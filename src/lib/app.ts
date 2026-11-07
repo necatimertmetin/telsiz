@@ -198,6 +198,7 @@ class App {
     void this.checkShellUpdate()
     setInterval(() => this.pushOverlay(), 300)
     setInterval(() => this.checkSchedules(), 20_000)
+    setInterval(() => this.autoReconnect(), 5000)
     addEventListener('pagehide', () => {
       try { const l = this.liveSession(); if (l) sessionStorage.setItem('telsiz.voice', l.code); else sessionStorage.removeItem('telsiz.voice') } catch { /* yok */ }
     })
@@ -503,6 +504,40 @@ class App {
   unreadGroup(s: Session) { return [...s.view.msgs.keys()].reduce((n, ch) => n + this.unread(s, ch), 0) }
 
   // Davet kodu değişince grup yeni odaya taşınır: geçmiş, okunma bilgisi ve ses kaldığı yerden sürer.
+  // Bağlantı koptu ya da kurulamadı ve grupta kimse görünmüyorsa grup baştan açılır: yeni ağ adresiyle
+  // eşleşme ve bağlantı yeniden denenir. Sesteysen aynı odaya geri girilir.
+  private retry = new Map<string, {n: number; at: number}>()
+  private static RETRY = [20, 60, 120, 300, 600]
+  reconnecting(s: Session) { const r = this.retry.get(s.code); return !!r && r.n < App.RETRY.length }
+  private autoReconnect() {
+    if (!navigator.onLine) return
+    for (const s of this.sessions.values()) {
+      const r = this.retry.get(s.code)
+      if (s.peers.size > 0) { if (r) { this.retry.delete(s.code); this.bump() } continue }
+      if (s.settling || !s.relayOk || (!s.linkError && !s.lost.size)) continue
+      if (!r) { this.retry.set(s.code, {n: 0, at: Date.now()}); this.bump(); continue }
+      const wait = App.RETRY[r.n]
+      if (wait === undefined || Date.now() - r.at < wait * 1000) continue
+      this.retry.set(s.code, {n: r.n + 1, at: Date.now()})
+      void this.reconnect(s.code, true)
+    }
+  }
+  async reconnect(code: string, auto = false) {
+    const g = this.groups.find(x => x.code === code), s = this.sessions.get(code)
+    if (!g || !s) return
+    if (!auto) this.retry.set(code, {n: 0, at: Date.now()})
+    const voice = s.voice.in ? {room: s.voice.room ?? '', muted: s.voice.muted} : null
+    const lost = [...s.lost]
+    this.calls.get(code)?.leave()
+    await s.leave()
+    this.sessions.delete(code); this.calls.delete(code)
+    this.open(g)
+    const fresh = this.sessions.get(code)!
+    for (const [uid, v] of lost) fresh.lost.set(uid, v)
+    if (voice && this.active === code && !this.liveSession()) { this.voiceRoom = voice.room; await this.joinVoice(false, voice.muted, voice.room).catch(() => {}) }
+    this.bump()
+  }
+
   private async moveGroup(old: string, code: string) {
     const g = this.groups.find(x => x.code === old), s = this.sessions.get(old)
     if (!g || !s) return

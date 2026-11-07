@@ -350,6 +350,8 @@ export function RadioBar() {
 export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
   const alone = s.peers.size === 0 && !s.settling
   const offline = !navigator.onLine
+  const lost = [...s.lost.values()].map(x => x.name)
+  const retrying = app.reconnecting(s)
   return (
     <>
       {app.backupNag && (
@@ -363,9 +365,17 @@ export function Notices({s, onSettings}: {s: Session; onSettings: () => void}) {
       {!offline && s.settling && <div className="notice seekbar"><span className="spin" aria-hidden="true" />Arkadaşlarına bağlanılıyor</div>}
       {!offline && !s.relayOk && <div className="notice warn">Eşleşme sunucularına ulaşılamıyor. Bağlı olduğun arkadaşlarınla devam edebilirsin, yeni bağlantı kurulamaz.</div>}
       {app.rejoin === s.code && !s.voice.in && <button className="backtocall" onClick={() => { app.rejoin = null; app.go({kind: 'voice'}); void app.joinVoice() }}><Icon n="wave" s={16} /> Görüşmeden düştün, geri dön</button>}
-      {alone && (
-        <div className="notice">{s.linkError ? 'Bir arkadaşınla bağlantı kurulamadı. Ayarlar > Gelişmiş bölümüne bak.' : 'Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.'}</div>
-      )}
+      {alone && (lost.length || s.linkError) ? (
+        <div className="notice warn linknote" role="status">
+          <span className="grow">
+            {lost.length ? `${lost.join(', ')} ile bağlantı gitti. ` : 'Bir arkadaşın seni buldu ama aranızda bağlantı kurulamadı. '}
+            {retrying ? 'Kendiliğinden yeniden deneniyor. ' : ''}
+            {lost.length && s.linkKind !== 'nat' ? 'Uygulamayı kapattıysa sorun yok; kapatmadıysa ikiniz de uygulamayı kapatıp açın.' : 'İkiniz de uygulamayı kapatıp açın ya da biriniz ağ değiştirsin (Wi-Fi ↔ mobil veri).'}
+            {!retrying && ' Sürerse: Ayarlar > Yedek ve cihaz > Gelişmiş.'}
+          </span>
+          <button className="btn" onClick={() => void app.reconnect(s.code)}>Şimdi dene</button>
+        </div>
+      ) : alone && <div className="notice">Şu an grupta sadece sen varsın. Arkadaşların açınca kendiliğinden bağlanır, mesajlar da eşitlenir.</div>}
     </>
   )
 }
